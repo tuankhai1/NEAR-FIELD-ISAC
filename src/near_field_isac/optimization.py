@@ -59,14 +59,26 @@ def _solver_candidates(cp: Any, requested: str) -> list[str]:
     )
 
 
-def _solve_options(solver: str, tolerance: float, max_iterations: int) -> dict[str, Any]:
+def _solve_options(
+    solver: str,
+    tolerance: float,
+    max_iterations: int,
+    solver_threads: int | None,
+) -> dict[str, Any]:
     if solver == "SCS":
         return {"eps": tolerance, "max_iters": max_iterations}
     if solver == "CLARABEL":
-        return {
+        options = {
             "tol_gap_abs": tolerance,
             "tol_feas": tolerance,
             "max_iter": max_iterations,
+        }
+        if solver_threads is not None:
+            options["max_threads"] = solver_threads
+        return options
+    if solver == "MOSEK" and solver_threads is not None:
+        return {
+            "mosek_params": {"MSK_IPAR_NUM_THREADS": solver_threads},
         }
     return {}
 
@@ -180,6 +192,7 @@ def solve_sdr(
     verbose: bool = False,
     tolerance: float = 1.0e-5,
     max_iterations: int = 20_000,
+    solver_threads: int | None = None,
     transmit_basis: ComplexArray | None = None,
     receive_combiner: ComplexArray | None = None,
     method_name: str = "fully-digital-sdr",
@@ -187,6 +200,8 @@ def solve_sdr(
     """Solve paper problem (20), optionally in a fixed hybrid RF subspace."""
 
     cp = _import_cvxpy()
+    if solver_threads is not None and solver_threads < 1:
+        raise ValueError("solver_threads must be at least 1")
     min_rate = config.min_rate if min_rate is None else min_rate
     n_dimension = config.n_antennas if transmit_basis is None else transmit_basis.shape[1]
     if transmit_basis is None:
@@ -273,7 +288,9 @@ def solve_sdr(
             objective = problem.solve(
                 solver=candidate,
                 verbose=verbose,
-                **_solve_options(candidate, tolerance, max_iterations),
+                **_solve_options(
+                    candidate, tolerance, max_iterations, solver_threads
+                ),
             )
         except cp.error.SolverError as error:
             solver_errors.append(f"{candidate}: {error}")

@@ -3,7 +3,12 @@ import numpy as np
 from near_field_isac.channels import generate_scenario
 from near_field_isac.communication import communication_rates, zf_sensing_baseline
 from near_field_isac.config import SimulationConfig
-from near_field_isac.fim import crb_matrix, fisher_information_blocks, root_crb
+from near_field_isac.fim import (
+    crb_matrix,
+    far_field_angle_crb,
+    fisher_information_blocks,
+    root_crb,
+)
 
 
 def test_zf_baseline_meets_rate_and_power_constraints() -> None:
@@ -45,3 +50,17 @@ def test_fim_physical_scaling_and_crb_are_well_formed() -> None:
     assert range_rcrb > 0
     assert angle_rcrb > 0
 
+
+def test_far_field_angle_crb_is_finite_and_improves_with_power() -> None:
+    config = SimulationConfig.quick()
+    scenario = generate_scenario(config)
+    identity = np.eye(config.n_antennas, dtype=np.complex128)
+    low_power = far_field_angle_crb(
+        config, identity, scenario.target_gain
+    )
+    high_power = far_field_angle_crb(
+        config, 2.0 * identity, scenario.target_gain
+    )
+    assert np.isfinite(low_power)
+    assert low_power > 0
+    assert np.isclose(high_power, low_power / 2.0)

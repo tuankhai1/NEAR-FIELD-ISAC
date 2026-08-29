@@ -12,9 +12,10 @@ The detailed Vietnamese paper analysis is in [docs/paper_analysis_vi.md](docs/pa
 
 | Paper result | What this repository generates | Entry point |
 |---|---|---|
-| Fig. 2 | Range/angle RCRB versus minimum user rate for fully digital and hybrid arrays | `nf-isac figure2` |
-| Fig. 3 | Near-field localized MUSIC peak versus far-field range ambiguity | `nf-isac figure3` |
-| Fig. 4 | Range/angle RCRB versus target distance with target pathloss held fixed | `nf-isac figure4` |
+| Full pipeline | Runs Fig. 2--4 with the full paper preset | `python main.py` |
+| Fig. 2 | Range/angle RCRB versus minimum user rate for fully digital and hybrid arrays | `python main.py figure2` |
+| Fig. 3 | Near-field localized MUSIC peak versus far-field range ambiguity | `python main.py figure3` |
+| Fig. 4 | Range/angle RCRB versus target distance with target pathloss held fixed | `python main.py figure4` |
 
 Two presets are available:
 
@@ -23,61 +24,202 @@ Two presets are available:
 
 ## Installation
 
-Python 3.10 or newer is required. Python 3.11–3.13 is the most conservative choice for scientific-computing environments.
+Python 3.10 or newer is required. Python 3.11–3.13 is the most conservative choice for scientific-computing environments. The current MOSEK 11.2 Python API officially supports Python 3.9–3.14.
 
 ```bash
 git clone <your-repository-url>
 cd near-field-isac-reproduction
-python -m venv .venv
+python -m pip install -e ".[optimization]"
 ```
 
-Activate the environment on Windows:
+The project does not require a virtual environment. A `.venv` is only an optional way to isolate dependencies and is already excluded by `.gitignore`.
 
-```powershell
-.venv\Scripts\Activate.ps1
-```
-
-Or on Linux/macOS:
-
-```bash
-source .venv/bin/activate
-```
-
-Install the package, CVXPY, and development tools:
-
-```bash
-python -m pip install -e ".[optimization,dev]"
-```
-
-If only the analytical ZF/MUSIC baseline is needed, CVXPY can be omitted:
+For only the lightweight ZF/MUSIC path without the full SDR pipeline, CVXPY can be omitted:
 
 ```bash
 python -m pip install -e .
+```
+
+Development/test tools are optional:
+
+```bash
+python -m pip install -e ".[optimization,dev]"
 ```
 
 ### Solver choice
 
 `--solver auto` tries MOSEK, then CLARABEL, then SCS. CLARABEL is a good open-source choice for `quick`. The paper-size fully digital problem contains five large complex PSD variables; MOSEK is strongly recommended for Fig. 2 and Fig. 4, matching the public MATLAB code. CLARABEL/SCS can be substantially slower at `N=65`, and SCS may return `optimal_inaccurate`.
 
-## Quick start
+### Install and run MOSEK on Windows
 
-Run the complete MUSIC pipeline without a convex solver:
+MOSEK is not bundled with this repository. It requires both the Python package and a valid license. Run all commands below from the same Python environment used to launch `main.py`.
+
+If the terminal prompt contains `(.venv)`, `python -m pip` installs MOSEK inside that environment. To use the global Python installation instead, leave it first:
+
+```powershell
+deactivate
+where.exe python
+python --version
+```
+
+Install the [MOSEK Python API](https://docs.mosek.com/latest/pythonapi/install-interface.html):
+
+```powershell
+python -m pip install Mosek
+```
+
+Request a [personal academic license](https://www.mosek.com/products/academic-licenses/) or a trial/commercial license. Store the downloaded license at the default Windows location documented by MOSEK:
+
+```powershell
+New-Item -ItemType Directory -Force "$env:USERPROFILE\mosek"
+Copy-Item "C:\path\to\downloaded\mosek.lic" "$env:USERPROFILE\mosek\mosek.lic"
+```
+
+The final path is normally `C:\Users\<username>\mosek\mosek.lic`. Never commit this file to GitHub.
+
+Confirm that CVXPY detects the solver:
+
+```powershell
+python -c "import cvxpy as cp; print(cp.installed_solvers())"
+```
+
+The printed list must contain `MOSEK`. Then test both the installation and license with a tiny optimization:
+
+```powershell
+python -c "import cvxpy as cp; x=cp.Variable(); p=cp.Problem(cp.Minimize(x),[x>=1]); p.solve(solver='MOSEK'); print('status=',p.status,'x=',x.value)"
+```
+
+Run a small project smoke test before starting the paper-size sweep:
+
+```powershell
+python main.py figure3 --preset quick --optimizer sdr --solver MOSEK --grid-size 121
+```
+
+Run the complete paper reproduction explicitly with MOSEK:
+
+```powershell
+python main.py all --preset paper --solver MOSEK --workers 1 --solver-threads 14
+```
+
+Adjust `--solver-threads` to the machine. On a 28-logical-CPU machine, 14 is a conservative starting point. Once MOSEK and its license work, plain `python main.py` also selects it automatically through `--solver auto`.
+
+`python main.py mosek` is not valid syntax: `all`, `figure2`, `figure3`, or `figure4` must be the subcommand, while MOSEK is selected by `--solver MOSEK`. See the [official license setup](https://docs.mosek.com/11.2/licensing/quickstart.html) if the solver is installed but reports a license error.
+
+### CPU and parallel execution
+
+Fig. 2 rate points and Fig. 4 distance points are independent. Use `--workers` to solve several points in separate processes:
 
 ```bash
-nf-isac figure3 --preset quick --optimizer zf --grid-size 121
+python main.py all --preset paper --solver CLARABEL --workers 4 --solver-threads 1
+```
+
+Start with `--workers 2`, monitor RAM, then increase to 4 if memory permits. Each paper-size fully digital worker can use substantial memory. For MOSEK, prefer its internal parallelism first:
+
+```bash
+python main.py all --preset paper --solver MOSEK --workers 1 --solver-threads 14
+```
+
+Keep approximately `workers * solver_threads <= logical CPU count`. CLARABEL's default QDLDL linear solver is effectively single-threaded, so multiple workers usually help more than a large `--solver-threads` value. MUSIC evaluation uses a low-rank signal-subspace identity and is vectorized; the `500 x 500` paper grid is no longer the dominant runtime.
+
+## Run the complete reproduction
+
+Run all three experiments at the highest paper setting:
+
+```bash
+python main.py
+```
+
+This is equivalent to `python main.py all --preset paper` and runs:
+
+- Fig. 2 at `R_min = 0, 1, ..., 10` for fully digital and hybrid arrays;
+- Fig. 3 with fully digital SDR and a `500 x 500` MUSIC grid;
+- Fig. 4 at target ranges `5, 10, ..., 40 m` for fully digital and hybrid arrays.
+
+The full run solves many `65 x 65` complex SDPs. MOSEK is recommended; with only CLARABEL or SCS it can take a long time. Solver selection defaults to `auto`.
+
+For a shorter end-to-end solver check:
+
+```bash
+python main.py all --preset quick --solver CLARABEL --workers 4 --solver-threads 1
+```
+
+## Execution modes, expected time, and minimum hardware
+
+The table below covers every supported experiment mode. Times are wall-clock estimates, not guarantees. The default `quick` pipeline measured 14.8 s with one worker on the current 28-logical-CPU development machine; a longer sweep measured 44 s with one worker and 18 s with four. Paper-size times are conservative estimates because solver version, CPU memory bandwidth, RAM pressure, seed, and MOSEK license/settings can change them substantially.
+
+| Command | What runs | Expected time | Practical minimum |
+|---|---|---:|---|
+| `python main.py` | Fig. 2--4, `paper`, SDR, 39 optimizations, `500 x 500` MUSIC | MOSEK: 25--90 min; CLARABEL: 1.5--6 h; SCS: 5--18 h | 8 cores, 16 GB RAM; 32 GB recommended |
+| `python main.py all --preset paper ...` | Same full run, with explicit solver/parallel controls | Same as above; 2--4 workers can shorten the sweep portion | 16 GB for 1 worker; 24 GB for 2; 32 GB+ for 4 |
+| `python main.py all --preset quick --solver CLARABEL` | Small end-to-end Fig. 2--4 solver validation | About 15--30 s with 1 worker | 4 cores, 8 GB RAM |
+| `python main.py all --preset quick --solver CLARABEL --workers 4 --solver-threads 1` | Parallel small end-to-end validation | About 10--25 s | 8 logical CPUs, 8--12 GB RAM |
+| `python main.py figure2 --preset quick --solver CLARABEL` | Three rate points, FD and HB | About 15--30 s | 4 cores, 8 GB RAM |
+| `python main.py figure2 --preset paper --solver MOSEK` | Fig. 2, 11 rate points, FD and HB | MOSEK: 15--50 min; CLARABEL: 1--4 h | 8 cores, 16 GB RAM |
+| `python main.py figure3 --preset quick --optimizer zf` | Small ZF/MUSIC diagnostic; no CVXPY | Under 2 s | 2 cores, 4 GB RAM |
+| `python main.py figure3 --preset paper --optimizer zf --grid-size 500` | Paper grid with the non-paper ZF baseline; no CVXPY | About 2--10 s | 2 cores, 4 GB RAM |
+| `python main.py figure3 --preset quick --optimizer sdr --solver CLARABEL` | Small fully digital SDR plus MUSIC | About 2--10 s | 4 cores, 8 GB RAM |
+| `python main.py figure3 --preset paper --optimizer sdr --solver MOSEK --grid-size 500` | Paper Fig. 3 fully digital SDR plus MUSIC | MOSEK: 1--5 min; CLARABEL: 5--30 min | 8 cores, 16 GB RAM |
+| `python main.py figure3 --preset quick --optimizer hybrid --solver CLARABEL` | Small two-stage hybrid SDR plus MUSIC | About 1--8 s | 4 cores, 8 GB RAM |
+| `python main.py figure3 --preset paper --optimizer hybrid --solver MOSEK --grid-size 500` | Paper-size hybrid comparison plus MUSIC | MOSEK: 1--5 min; CLARABEL: 2--15 min | 8 cores, 12 GB RAM |
+| `python main.py figure4 --preset quick --solver CLARABEL` | Three target distances, FD and HB | About 15--30 s | 4 cores, 8 GB RAM |
+| `python main.py figure4 --preset paper --solver MOSEK` | Fig. 4, eight distances, FD and HB | MOSEK: 10--40 min; CLARABEL: 45 min--3 h | 8 cores, 16 GB RAM |
+
+The minimums assume `--workers 1`. A worker is a complete solver process, so RAM use grows approximately with worker count. MOSEK rows require a working MOSEK installation and license. SCS is available as a fallback but is not recommended for publication-size runs because it is slower and may end with `optimal_inaccurate`.
+
+All command forms accept `--output PATH`; generated PNG/CSV/NPZ/JSON files then go below that path. Without it, plots are in `results/figure2/`, `results/figure3/`, and `results/figure4/`.
+
+## Command-line options
+
+List all commands or the options for one command:
+
+```bash
+python main.py --help
+python main.py all --help
+python main.py figure3 --help
+```
+
+Common controls:
+
+| Option | Meaning |
+|---|---|
+| `--preset quick|paper` | Small test setup or the full published setup |
+| `--solver auto|MOSEK|CLARABEL|SCS` | Convex SDP solver |
+| `--seed N` | Reproducible user locations and target reflection |
+| `--output PATH` | Output root instead of `results/` |
+| `--tolerance X` | Solver feasibility/optimality tolerance |
+| `--max-iterations N` | Solver iteration limit |
+| `--solver-threads N` | Threads inside CLARABEL/MOSEK |
+| `--workers N` | Parallel Fig. 2/4 sweep processes (`all`, `figure2`, `figure4`) |
+| `--verbose` | Print detailed solver logs |
+
+Experiment-specific controls:
+
+| Command | Options and defaults |
+|---|---|
+| `all` | `paper`; SDR; rates `0:1:10`; distances `5:5:40`; grid `500`; supports `--grid-size`, `--rates`, `--distances`, `--workers` |
+| `figure2` | `quick`; rates `0 2 4`; supports `--rates` and `--workers` |
+| `figure3` | `quick`; ZF; grid `121`; supports `--optimizer zf|sdr|hybrid` and `--grid-size` |
+| `figure4` | `quick`; distances `5 20 40`; supports `--distances` and `--workers` |
+
+## Individual and quick runs
+
+Run the fast MUSIC/ZF path without a convex solver:
+
+```bash
+python main.py figure3 --preset quick --optimizer zf --grid-size 121
 ```
 
 Check the paper's SDR on the small preset:
 
 ```bash
-nf-isac figure3 --preset quick --optimizer sdr --solver CLARABEL --grid-size 121
+python main.py figure3 --preset quick --optimizer sdr --solver CLARABEL --grid-size 121
 ```
 
 Generate short versions of the CRB sweeps:
 
 ```bash
-nf-isac figure2 --preset quick --solver CLARABEL --rates 0 2 5
-nf-isac figure4 --preset quick --solver CLARABEL --distances 5 20 40
+python main.py figure2 --preset quick --solver CLARABEL --rates 0 2 5
+python main.py figure4 --preset quick --solver CLARABEL --distances 5 20 40
 ```
 
 Equivalent wrapper scripts are available under `scripts/`.
@@ -87,25 +229,49 @@ Equivalent wrapper scripts are available under `scripts/`.
 The following commands use the parameters and grid sizes reported by the paper/author code:
 
 ```bash
-nf-isac figure3 --preset paper --optimizer sdr --solver MOSEK --grid-size 500
-nf-isac figure2 --preset paper --solver MOSEK --rates 0 1 2 3 4 5 6 7 8 9 10
-nf-isac figure4 --preset paper --solver MOSEK --distances 5 10 15 20 25 30 35 40
+python main.py figure3 --preset paper --optimizer sdr --solver MOSEK --grid-size 500
+python main.py figure2 --preset paper --solver MOSEK --rates 0 1 2 3 4 5 6 7 8 9 10
+python main.py figure4 --preset paper --solver MOSEK --distances 5 10 15 20 25 30 35 40
 ```
 
 Generated plots, CSV/NPZ data, and JSON summaries are written to `results/<figure>/`. Generated artifacts are ignored by Git; `results/.gitkeep` preserves the directory.
 
-## Expected behavior
+The plotting code intentionally follows the paper's visual grammar: blue/open-circle distance curves, red/open-square angle curves, solid FD and dashed HB lines, two-column boxed legends, restrained major/minor grids, and scientific notation where appropriate. Fig. 3 uses matching 3D camera angles, fixed dB limits, the BS marker, and the true-target marker on both panels.
 
-- Near-field MUSIC should peak around the true target at `(r, theta) = (20 m, 45°)` because spherical curvature contains both range and angle information.
-- Far-field MUSIC should form a ridge along `theta = 45°`; its grid maximum has no unique range interpretation.
-- Increasing the minimum communication rate consumes waveform degrees of freedom and generally worsens sensing CRBs.
-- The range RCRB grows rapidly as the target moves farther away because the spherical response approaches a planar wave.
-- The two-stage hybrid design should be below the fully digital sensing performance bound because its RF stage is constrained to unit-modulus focusing vectors.
+## Meaning of each figure
+
+RCRB is the square root of a diagonal CRB entry. It is a theoretical lower bound on the standard deviation of an unbiased estimator, not the measured RMSE of MUSIC. Lower is better.
+
+### Figure 2 — sensing/communication tradeoff
+
+- Horizontal axis: minimum rate required from every communication user, in bit/s/Hz.
+- Vertical axes: range RCRB in metres and angle RCRB in degrees.
+- Curves: fully digital (FD) and hybrid beamforming (HB).
+
+As `R_min` increases, more transmit degrees of freedom and power must satisfy communication constraints, leaving less freedom to shape a sensing-optimal covariance. The RCRBs should therefore generally increase. The gap between HB and FD quantifies the sensing cost of the lower-power hybrid hardware and its unit-modulus RF constraint.
+
+### Figure 3 — what near-field sensing adds
+
+The two surfaces are normalized MUSIC spectra over Cartesian position `(x,y)`. The true `(20 m, 45°)` target is at approximately `(14.14 m, 14.14 m)`.
+
+- Near-field: spherical-wave curvature changes with both angle and range, so MUSIC produces a localized two-dimensional peak around the target.
+- Far-field: the steering vector depends only on angle, so all points along `theta = 45°` are indistinguishable and form a ridge. Any single reported range at the ridge maximum is arbitrary.
+
+This figure is the clearest demonstration of the paper's central claim: near-field propagation introduces an additional identifiable range dimension.
+
+### Figure 4 — loss of range information with distance
+
+- Horizontal axis: target distance.
+- Vertical axes: range and angle RCRB.
+- Target pathloss is held fixed during this sweep, so the plot isolates array geometry rather than simple SNR decay.
+
+As the target moves farther away, its spherical wavefront becomes increasingly planar. Range-dependent phase curvature vanishes, so range RCRB rises rapidly. Angle estimation can improve or approach the far-field limit because the target direction becomes more uniform across the aperture. HB should remain worse than the fully digital bound.
 
 ## Codebase map
 
 ```text
 .
+├── main.py                         # full Fig. 2--4 paper run: python main.py
 ├── docs/
 │   └── paper_analysis_vi.md       # paper derivation, critique, and reproduction notes
 ├── scripts/
@@ -189,4 +355,3 @@ If this baseline is useful in research, cite the original paper:
 ## License
 
 This Python baseline is released under the [MIT License](LICENSE). The paper and the authors' MATLAB repository remain subject to their respective licenses and copyright terms.
-

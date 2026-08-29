@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from .channels import target_response_matrices
+from .channels import antenna_positions, far_field_response, target_response_matrices
 from .config import SimulationConfig
 
 ComplexArray = NDArray[np.complex128]
@@ -110,3 +110,64 @@ def root_crb(crb: FloatArray) -> tuple[float, float]:
     diagonal = np.maximum(np.diag(crb), 0.0)
     return float(np.sqrt(diagonal[0])), float(np.rad2deg(np.sqrt(diagonal[1])))
 
+
+def far_field_angle_crb(
+    config: SimulationConfig,
+    covariance: ComplexArray,
+    target_gain: complex,
+    *,
+    angle: float | None = None,
+    receive_combiner: ComplexArray | None = None,
+    scale: float | None = None,
+) -> float:
+    """Return the far-field angle CRB with complex target gain as nuisance.
+
+    This is the one-dimensional far-field counterpart of Appendix B. Range is
+    absent because a planar-wave steering vector carries no spatial range
+    information.
+    """
+
+    angle = config.target_angle if angle is None else angle
+    response = far_field_response(config, angle)
+    derivative = (
+        -1j
+        * 2.0
+        * np.pi
+        / config.wavelength
+        * antenna_positions(config)
+        * np.sin(angle)
+        * response
+    )
+    target = np.outer(response, response)
+    target_angle_derivative = np.outer(derivative, response) + np.outer(
+        response, derivative
+    )
+    if receive_combiner is not None:
+        target = receive_combiner @ target
+        target_angle_derivative = receive_combiner @ target_angle_derivative
+        default_noise = config.n_antennas * config.noise_power
+    else:
+        default_noise = config.noise_power
+    if scale is None:
+        scale = config.coherent_block_length / default_noise
+
+    angle_information = (
+        2.0
+        * scale
+        * abs(target_gain) ** 2
+        * _real_trace(target_angle_derivative, covariance, target_angle_derivative)
+    )
+    cross_trace = np.trace(
+        target @ covariance @ target_angle_derivative.conj().T
+    )
+    cross = 2.0 * scale * np.real(
+        np.conj(target_gain) * np.array([cross_trace, 1j * cross_trace])
+    )
+    nuisance_information = 2.0 * scale * _real_trace(target, covariance, target)
+    nuisance = nuisance_information * np.eye(2)
+    equivalent_information = angle_information - float(
+        cross @ np.linalg.pinv(nuisance, hermitian=True) @ cross.T
+    )
+    if equivalent_information <= 0:
+        return float("inf")
+    return float(1.0 / equivalent_information)

@@ -122,6 +122,15 @@ def noise_projector(covariance: ComplexArray, n_targets: int = 1) -> ComplexArra
     return noise_vectors @ noise_vectors.conj().T
 
 
+def signal_subspace(covariance: ComplexArray, n_targets: int = 1) -> ComplexArray:
+    """Return the dominant orthonormal signal-subspace eigenvectors."""
+
+    if not (1 <= n_targets < covariance.shape[0]):
+        raise ValueError("n_targets must be between 1 and n_antennas - 1")
+    _, eigenvectors = np.linalg.eigh(0.5 * (covariance + covariance.conj().T))
+    return eigenvectors[:, -n_targets:]
+
+
 def steering_matrix_xy(
     config: SimulationConfig,
     x: FloatArray,
@@ -169,7 +178,7 @@ def music_spectrum_xy(
     )
     flat_x = x_grid.ravel()
     flat_y = y_grid.ravel()
-    projector = noise_projector(covariance, n_targets=n_targets)
+    signal_vectors = signal_subspace(covariance, n_targets=n_targets)
     denominator = np.empty(flat_x.size, dtype=float)
     for start in range(0, flat_x.size, batch_size):
         stop = min(start + batch_size, flat_x.size)
@@ -178,10 +187,11 @@ def music_spectrum_xy(
         )
         if receive_combiner is not None:
             steering = receive_combiner @ steering
-        projected = projector @ steering
-        denominator[start:stop] = np.real(
-            np.sum(steering.conj() * projected, axis=0)
+        total_energy = np.sum(np.abs(steering) ** 2, axis=0)
+        signal_energy = np.sum(
+            np.abs(signal_vectors.conj().T @ steering) ** 2, axis=0
         )
+        denominator[start:stop] = np.real(total_energy - signal_energy)
     floor = max(float(np.max(np.abs(denominator))) * 1.0e-15, np.finfo(float).tiny)
     pseudo_spectrum = 1.0 / np.maximum(denominator, floor)
     pseudo_spectrum /= np.max(pseudo_spectrum)

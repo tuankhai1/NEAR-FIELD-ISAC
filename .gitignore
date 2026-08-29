@@ -29,10 +29,6 @@ Thumbs.db
 results/*
 !results/.gitkeep
 
-# Local author-code checkout used only for cross-checking the Python port
-.reference_author_code/
-
 # Solver logs and local licenses
 *.log
 mosek.lic
-

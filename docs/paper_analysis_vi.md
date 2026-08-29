@@ -203,3 +203,24 @@ Baseline hiện có ZF để làm lower-complexity comparison. Các hướng ti�
 
 Khi thêm thuật toán mới, nên dùng cùng file scenario/seed và kiểm tra ba điều trước khi so CRB: power constraint, minimum achieved rate và PSD của residual sensing covariance.
 
+## 13. Tối ưu thời gian chạy
+
+CPU không chạy 100% không đồng nghĩa chương trình bị lỗi. Fully-digital SDP chủ yếu tốn thời gian ở canonicalization, sparse/dense factorization và đồng bộ bộ nhớ. CLARABEL với linear solver QDLDL mặc định thường không dùng hết nhiều core.
+
+Các điểm `R_min` trong Fig. 2 và các khoảng cách trong Fig. 4 độc lập. Baseline hỗ trợ chạy chúng bằng nhiều process:
+
+```powershell
+python main.py all --preset paper --solver CLARABEL --workers 4 --solver-threads 1
+```
+
+Nên bắt đầu với `--workers 2`, theo dõi RAM, sau đó tăng lên 4. Mỗi process paper-size giữ nhiều PSD matrix lớn nên tăng worker quá cao có thể làm paging và chậm hơn.
+
+MOSEK có parallelism bên trong solver. Với MOSEK, có thể bắt đầu bằng:
+
+```powershell
+python main.py all --preset paper --solver MOSEK --workers 1 --solver-threads 14
+```
+
+Quy tắc thực dụng là giữ `workers * solver_threads` không vượt quá số logical CPU. Với CLARABEL/QDLDL, tăng `workers` thường hiệu quả hơn tăng `solver_threads`. Với MOSEK, nên ưu tiên thread bên trong solver trước.
+
+MUSIC grid được tính bằng identity `P_noise = I - E_signal E_signal^H`, tránh nhân projector `N x N` tại từng grid point. Đây là phép biến đổi tương đương nhưng giảm độ phức tạp của grid evaluation từ gần `O(N^2 G)` xuống `O(N G)` cho một target.
