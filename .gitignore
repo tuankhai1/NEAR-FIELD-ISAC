@@ -1,0 +1,38 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.mplconfig/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build and packaging artifacts
+build/
+dist/
+*.egg-info/
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Generated experiment artifacts (keep the directory placeholder)
+results/*
+!results/.gitkeep
+
+# Local author-code checkout used only for cross-checking the Python port
+.reference_author_code/
+
+# Solver logs and local licenses
+*.log
+mosek.lic
+

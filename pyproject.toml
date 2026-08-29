@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "near-field-isac-reproduction"
+version = "0.1.0"
+description = "Python baseline for reproducing Near-Field Integrated Sensing and Communications (Wang, Mu, and Liu, 2023)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Near-field ISAC reproduction contributors" }]
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+optimization = ["cvxpy>=1.6"]
+dev = ["pytest>=8", "ruff>=0.9"]
+
+[project.scripts]
+nf-isac = "near_field_isac.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
