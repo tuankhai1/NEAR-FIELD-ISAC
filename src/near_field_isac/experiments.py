@@ -9,6 +9,7 @@ import tempfile
 from collections.abc import Iterable, MutableMapping
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import replace
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,30 @@ from .optimization import (
     solve_fully_digital_sdr,
     solve_hybrid_sdr,
 )
+
+
+_PAPER_PLOT_STYLE = {
+    "font.family": "serif",
+    "font.serif": ["Times New Roman", "STIXGeneral", "DejaVu Serif"],
+    "mathtext.fontset": "stix",
+    "font.size": 10.0,
+    "axes.labelsize": 11.5,
+    "axes.linewidth": 0.8,
+    "xtick.labelsize": 10.0,
+    "ytick.labelsize": 10.0,
+    "legend.fontsize": 9.5,
+}
+
+
+def _with_paper_plot_style(function: Any) -> Any:
+    """Apply the paper-like serif typography only while rendering a figure."""
+
+    @wraps(function)
+    def styled(*args: Any, **kwargs: Any) -> Any:
+        with plt.rc_context(_PAPER_PLOT_STYLE):
+            return function(*args, **kwargs)
+
+    return styled
 
 
 def _prepare_output(path: str | Path) -> Path:
@@ -110,6 +135,7 @@ def _waveform_for_figure3(
     raise ValueError("optimizer must be 'zf', 'sdr', or 'hybrid'")
 
 
+@_with_paper_plot_style
 def _plot_music_pair(
     near: MusicResult,
     far: MusicResult,
@@ -118,7 +144,7 @@ def _plot_music_pair(
     target_range: float,
     target_angle: float,
 ) -> None:
-    figure = plt.figure(figsize=(11.4, 5.0))
+    figure = plt.figure(figsize=(9.2, 4.25))
     target_x = target_range * np.cos(target_angle)
     target_y = target_range * np.sin(target_angle)
     legend_handles = [
@@ -154,8 +180,8 @@ def _plot_music_pair(
             10.0 * np.log10(np.maximum(result.spectrum, 1.0e-12)), -60.0, 0.0
         )
         axis.plot_surface(
-            result.x_grid[::stride, ::stride],
             result.y_grid[::stride, ::stride],
+            result.x_grid[::stride, ::stride],
             spectrum_db[::stride, ::stride],
             cmap="jet",
             vmin=-52.0,
@@ -179,8 +205,8 @@ def _plot_music_pair(
             zorder=10,
         )
         axis.scatter(
-            [target_x],
             [target_y],
+            [target_x],
             [0.0],
             color="#e53935",
             edgecolor="white",
@@ -191,15 +217,17 @@ def _plot_music_pair(
             zorder=11,
         )
         axis.text(
-            target_x + 0.8,
             target_y + 0.8,
+            target_x + 0.8,
             2.5,
             f"({target_range:g} m, {np.rad2deg(target_angle):g}\N{DEGREE SIGN})",
-            fontsize=8,
+            fontsize=9,
             ha="center",
         )
-        axis.set_xlabel("x (m)", labelpad=5)
-        axis.set_ylabel("y (m)", labelpad=5)
+        # Swap the displayed horizontal axes so Matplotlib matches the paper's
+        # camera convention while preserving the physical x/y coordinates.
+        axis.set_xlabel("y (m)", labelpad=5)
+        axis.set_ylabel("x (m)", labelpad=5)
         axis.set_zlabel("Spectrum (dB)", labelpad=5)
         axis.set_xlim(0.0, 40.0)
         axis.set_ylim(0.0, 40.0)
@@ -207,18 +235,18 @@ def _plot_music_pair(
         axis.set_xticks([0, 10, 20, 30, 40])
         axis.set_yticks([0, 10, 20, 30, 40])
         axis.set_zticks([-60, -40, -20, 0])
-        axis.view_init(elev=27, azim=-128)
-        axis.set_box_aspect((1.0, 1.0, 0.62))
-        axis.tick_params(labelsize=8, pad=0)
-        axis.grid(True, alpha=0.18)
+        axis.view_init(elev=25, azim=52)
+        axis.set_box_aspect((1.0, 1.0, 0.56))
+        axis.tick_params(labelsize=8.5, pad=0, direction="in")
+        axis.grid(False)
         for pane in (axis.xaxis.pane, axis.yaxis.pane, axis.zaxis.pane):
-            pane.set_facecolor((0.98, 0.98, 0.98, 1.0))
-            pane.set_edgecolor((0.82, 0.82, 0.82, 1.0))
+            pane.set_facecolor((1.0, 1.0, 1.0, 0.0))
+            pane.set_edgecolor((0.70, 0.70, 0.70, 1.0))
         axis.legend(
             handles=legend_handles,
             loc="upper left",
             bbox_to_anchor=(0.0, 1.0),
-            fontsize=8,
+            fontsize=8.5,
             frameon=True,
             fancybox=False,
             edgecolor="0.65",
@@ -232,10 +260,9 @@ def _plot_music_pair(
             transform=axis.transAxes,
             ha="center",
             va="top",
-            fontsize=11,
-            fontfamily="serif",
+            fontsize=11.5,
         )
-    figure.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.14, wspace=0.02)
+    figure.subplots_adjust(left=0.01, right=0.99, top=0.98, bottom=0.15, wspace=0.01)
     figure.savefig(destination, dpi=240, bbox_inches="tight")
     plt.close(figure)
 
@@ -441,8 +468,7 @@ def _architecture_rows(
 
 
 def _paper_axis_style(axis: plt.Axes) -> None:
-    axis.grid(True, which="major", color="0.84", linewidth=0.65, alpha=0.75)
-    axis.grid(True, which="minor", color="0.91", linewidth=0.45, alpha=0.55)
+    axis.grid(False, which="both")
     axis.tick_params(which="both", direction="in", top=True, width=0.8)
     axis.tick_params(which="major", length=4)
     axis.tick_params(which="minor", length=2.5)
@@ -451,13 +477,14 @@ def _paper_axis_style(axis: plt.Axes) -> None:
         spine.set_linewidth(0.8)
 
 
+@_with_paper_plot_style
 def _plot_figure2(rows: list[dict[str, Any]], destination: Path) -> None:
     fd = _architecture_rows(rows, "fully-digital-sdr", "minimum_rate")
     hb = _architecture_rows(rows, "hybrid-two-stage-sdr", "minimum_rate")
     if not fd or not hb:
         raise ValueError("Figure 2 needs both fully digital and hybrid rows")
 
-    figure, distance_axis = plt.subplots(figsize=(6.8, 4.8))
+    figure, distance_axis = plt.subplots(figsize=(6.25, 4.45))
     angle_axis = distance_axis.twinx()
     blue = "#1848e8"
     red = "#ef342a"
@@ -545,7 +572,7 @@ def _plot_figure2(rows: list[dict[str, Any]], destination: Path) -> None:
         fancybox=False,
         framealpha=0.96,
         edgecolor="0.55",
-        fontsize=9,
+        fontsize=9.5,
         columnspacing=1.0,
         handlelength=2.6,
         borderpad=0.45,
@@ -567,7 +594,7 @@ def _plot_figure2(rows: list[dict[str, Any]], destination: Path) -> None:
             xycoords="data",
             xytext=(hybrid_text_x, 0.67),
             textcoords="axes fraction",
-            fontsize=9,
+            fontsize=10,
             arrowprops={"arrowstyle": "-|>", "lw": 0.85, "color": "0.15"},
         )
         distance_axis.annotate(
@@ -576,7 +603,7 @@ def _plot_figure2(rows: list[dict[str, Any]], destination: Path) -> None:
             xycoords="data",
             xytext=(digital_text_x, 0.23),
             textcoords="axes fraction",
-            fontsize=9,
+            fontsize=10,
             arrowprops={"arrowstyle": "-|>", "lw": 0.85, "color": "0.15"},
         )
 
@@ -592,6 +619,7 @@ def _scientific_formatter(axis: plt.Axes) -> None:
     axis.yaxis.set_major_formatter(formatter)
 
 
+@_with_paper_plot_style
 def _plot_figure4(rows: list[dict[str, Any]], destination: Path) -> None:
     fd = _architecture_rows(rows, "fully-digital-sdr", "distance_m")
     hb = _architecture_rows(rows, "hybrid-two-stage-sdr", "distance_m")

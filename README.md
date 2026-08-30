@@ -14,7 +14,9 @@ The repository implements the spherical-wave channel, range/angle CRB, 2D MUSIC,
 | Fig. 3 | Near-field MUSIC peak versus far-field range ambiguity | `results/figure3/` |
 | Fig. 4 | Range/angle RCRB versus target distance | `results/figure4/` |
 
-The generated plots follow the paper's colors, open markers, line styles, legends, grids, 3D camera angles, and near-/far-field references.
+The generated plots follow the paper's serif typography, clean grid-free axes,
+colors, open markers, line styles, legends, 3D camera angles, and near-/far-field
+references.
 
 ## Installation
 
@@ -177,7 +179,10 @@ As target distance increases, the wavefront becomes more planar and range-depend
 
 ## Reproducibility notes
 
-- The paper does not publish its random user realization or seed. This baseline uses `seed=2023` and records it in each JSON summary.
+- The paper and public MATLAB code do not publish an RNG seed. Both the four
+  user locations and the complex target reflection are random, so their exact
+  realization materially changes the RCRB curves. This baseline uses
+  `seed=2023` and records it in each JSON summary.
 - The authors' public code implements fully digital Fig. 3. Fig. 2, Fig. 4, and the hybrid sweeps are reconstructed from the paper equations.
 - Exact pixel-level agreement is not guaranteed; compare CSV/JSON values, solver status, achieved rates, and fixed seeds rather than only the rendered images.
 
