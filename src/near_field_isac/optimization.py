@@ -79,6 +79,10 @@ def _solve_options(
     if solver == "MOSEK":
         mosek_params = {
             "MSK_IPAR_INTPNT_MAX_ITERATIONS": max_iterations,
+            # CVXPY dualizes continuous conic problems before handing them to
+            # MOSEK. Solving that canonicalized form as a dual avoids a much
+            # larger factorization for the paper-size fully digital SDP.
+            "MSK_IPAR_INTPNT_SOLVE_FORM": "MSK_SOLVE_DUAL",
         }
         if solver_threads is not None:
             mosek_params["MSK_IPAR_NUM_THREADS"] = solver_threads
@@ -296,6 +300,21 @@ def solve_sdr(
                 ),
             )
         except cp.error.SolverError as error:
+            solver_errors.append(f"{candidate}: {error}")
+            continue
+        except Exception as error:
+            is_mosek_error = (
+                candidate == "MOSEK"
+                and error.__class__.__module__.partition(".")[0] == "mosek"
+            )
+            if not is_mosek_error:
+                raise
+            if "err_space" in str(getattr(error, "errno", "")).lower():
+                raise RuntimeError(
+                    "MOSEK ran out of memory while solving the paper-size SDP. "
+                    "Close memory-heavy applications or rerun with "
+                    "`--solver-threads 1`."
+                ) from error
             solver_errors.append(f"{candidate}: {error}")
             continue
         if problem.status in {cp.OPTIMAL, cp.OPTIMAL_INACCURATE}:

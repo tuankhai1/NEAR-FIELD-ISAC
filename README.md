@@ -53,7 +53,7 @@ antennas, 4 users, and 5 RF chains, but uses fewer curve/grid samples and reuses
 the nominal optimization across Figures 2--4:
 
 ```bash
-python main.py all --preset quick --solver MOSEK --workers 1
+python main.py all --preset quick --solver MOSEK --workers 1 --solver-threads 4
 ```
 
 Run a short end-to-end installation check with the intentionally tiny model:
@@ -88,7 +88,7 @@ Useful options:
 | `--rates ...` / `--distances ...` | Custom Fig. 2/4 sweep points |
 | `--grid-size N` | MUSIC points per Cartesian axis |
 | `--workers N` | Parallel Fig. 2/4 sweep processes |
-| `--solver-threads N` | Threads used inside the solver |
+| `--solver-threads N` | Threads used inside the solver; defaults to 4 to limit peak memory |
 | `--seed N` / `--output PATH` | Random seed and output root |
 | `--verbose` | Detailed solver output |
 
@@ -108,7 +108,10 @@ Times are approximate and depend strongly on the solver, CPU, RAM, and scenario 
 | Fig. 3 `paper`, SDR/hybrid | MOSEK: 1–5 min; CLARABEL: 2–30 min | 8 cores, 12–16 GB RAM |
 | Fig. 4 `paper` | MOSEK: 10–40 min; CLARABEL: 45 min–3 h | 8 cores, 16 GB RAM |
 
-Paper-size fully digital SDP can use most available RAM. Start with `--workers 1`; each additional worker launches another solver process and can multiply memory usage. Increase workers only when sufficient RAM is available.
+Paper-size fully digital SDP can use most available RAM. Start with `--workers 1`
+and `--solver-threads 4`; each additional worker launches another solver process
+and can multiply memory usage. If MOSEK reports `MSK_RES_ERR_SPACE`, close
+memory-heavy applications or retry with `--solver-threads 1`.
 
 ## Output files
 

@@ -9,6 +9,7 @@ def test_all_command_defaults_to_full_paper_preset() -> None:
     assert arguments.grid_size is None
     assert arguments.rates is None
     assert arguments.distances is None
+    assert arguments.solver_threads == 4
 
 
 def test_all_command_orchestrates_all_three_figures(monkeypatch, tmp_path) -> None:

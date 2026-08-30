@@ -55,8 +55,8 @@ def _add_common_arguments(
     parser.add_argument(
         "--solver-threads",
         type=int,
-        default=None,
-        help="threads inside CLARABEL/MOSEK; omit to use the solver default",
+        default=4,
+        help="threads inside CLARABEL/MOSEK; defaults to 4 to limit peak memory",
     )
     parser.add_argument("--verbose", action="store_true", help="show solver logs")
 
