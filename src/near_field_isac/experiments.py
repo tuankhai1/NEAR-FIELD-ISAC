@@ -70,6 +70,28 @@ def _solver_kwargs(
     }
 
 
+def _run_isolated_solver_call(function: Any, *args: Any) -> Any:
+    """Run one paper-size solve in a disposable process.
+
+    CVXPY and native conic solvers can retain large allocator arenas after a
+    solve.  A short-lived worker guarantees that memory is returned to the OS
+    before the next sweep point.
+    """
+
+    with ProcessPoolExecutor(max_workers=1) as executor:
+        return executor.submit(function, *args).result()
+
+
+def _needs_solver_isolation(config: SimulationConfig) -> bool:
+    return config.n_antennas >= SimulationConfig.paper().n_antennas
+
+
+def _run_solver_call(function: Any, *args: Any, isolate: bool) -> Any:
+    if isolate:
+        return _run_isolated_solver_call(function, *args)
+    return function(*args)
+
+
 def _waveform_for_figure3(
     config: SimulationConfig,
     scenario: Scenario,
@@ -397,6 +419,8 @@ def _curve_row(
         "angle_rcrb_deg": angle_rcrb,
         "minimum_achieved_rate": float(np.min(result.rates)),
         "objective": result.objective,
+        "solver": result.solver,
+        "solver_status": result.status,
     }
 
 
@@ -757,12 +781,14 @@ def reproduce_figure2(
                     _curve_row(config, scenario, hybrid, "minimum_rate", numeric_rate),
                 ]
             else:
-                point_rows, point_results = _solve_figure2_point(
+                point_rows, point_results = _run_solver_call(
+                    _solve_figure2_point,
                     config,
                     scenario,
                     receive_combiner,
                     numeric_rate,
                     solver_options,
+                    isolate=_needs_solver_isolation(config),
                 )
                 if result_cache is not None:
                     result_cache[numeric_rate] = point_results
@@ -949,13 +975,15 @@ def reproduce_figure4(
                     hybrid,
                 )
             else:
-                point_rows = _solve_figure4_point(
+                point_rows = _run_solver_call(
+                    _solve_figure4_point,
                     config,
                     base_scenario,
                     receive_combiner,
                     numeric_distance,
                     fixed_target_gain,
                     solver_options,
+                    isolate=_needs_solver_isolation(config),
                 )
             rows.extend(point_rows)
     else:

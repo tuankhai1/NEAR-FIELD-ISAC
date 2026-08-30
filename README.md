@@ -32,7 +32,10 @@ The project does not require a virtual environment. For development tools:
 python -m pip install -e ".[optimization,dev]"
 ```
 
-CVXPY automatically tries MOSEK, CLARABEL, then SCS when `--solver auto` is used. MOSEK is recommended for both `quick` and `paper`, which use the same paper-size SDP. CLARABEL is sufficient for `smoke` installation checks.
+With `--solver auto`, the pipeline prefers MOSEK for the paper-size fully
+digital SDP and CLARABEL for the compact hybrid SDP, with the other installed
+solvers available as fallbacks. This architecture-specific policy avoids known
+numerical failures in the high-rate hybrid sweep.
 
 ## Usage
 
@@ -53,7 +56,7 @@ antennas, 4 users, and 5 RF chains, but uses fewer curve/grid samples and reuses
 the nominal optimization across Figures 2--4:
 
 ```bash
-python main.py all --preset quick --solver MOSEK --workers 1 --solver-threads 4
+python main.py all --preset quick --solver auto --workers 1 --solver-threads 4
 ```
 
 Run a short end-to-end installation check with the intentionally tiny model:
@@ -111,7 +114,9 @@ Times are approximate and depend strongly on the solver, CPU, RAM, and scenario 
 Paper-size fully digital SDP can use most available RAM. Start with `--workers 1`
 and `--solver-threads 4`; each additional worker launches another solver process
 and can multiply memory usage. If MOSEK reports `MSK_RES_ERR_SPACE`, close
-memory-heavy applications or retry with `--solver-threads 1`.
+memory-heavy applications or retry with `--solver-threads 1`. With one worker,
+paper-size sweep points run in disposable processes so native solver memory is
+released between points.
 
 ## Output files
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -40,7 +40,9 @@ def _import_cvxpy() -> Any:
     return cp
 
 
-def _solver_candidates(cp: Any, requested: str) -> list[str]:
+def _solver_candidates(
+    cp: Any, requested: str, *, prefer_clarabel: bool = False
+) -> list[str]:
     installed = set(cp.installed_solvers())
     if requested.lower() != "auto":
         solver = requested.upper()
@@ -49,9 +51,12 @@ def _solver_candidates(cp: Any, requested: str) -> list[str]:
                 f"Requested solver {solver!r} is not installed. Available: {sorted(installed)}"
             )
         return [solver]
-    candidates = [
-        candidate for candidate in ("MOSEK", "CLARABEL", "SCS") if candidate in installed
-    ]
+    order = (
+        ("CLARABEL", "MOSEK", "SCS")
+        if prefer_clarabel
+        else ("MOSEK", "CLARABEL", "SCS")
+    )
+    candidates = [candidate for candidate in order if candidate in installed]
     if candidates:
         return candidates
     raise RuntimeError(
@@ -79,10 +84,6 @@ def _solve_options(
     if solver == "MOSEK":
         mosek_params = {
             "MSK_IPAR_INTPNT_MAX_ITERATIONS": max_iterations,
-            # CVXPY dualizes continuous conic problems before handing them to
-            # MOSEK. Solving that canonicalized form as a dual avoids a much
-            # larger factorization for the paper-size fully digital SDP.
-            "MSK_IPAR_INTPNT_SOLVE_FORM": "MSK_SOLVE_DUAL",
         }
         if solver_threads is not None:
             mosek_params["MSK_IPAR_NUM_THREADS"] = solver_threads
@@ -290,7 +291,9 @@ def solve_sdr(
     selected_solver = ""
     objective = None
     solver_errors: list[str] = []
-    for candidate in _solver_candidates(cp, solver):
+    for candidate in _solver_candidates(
+        cp, solver, prefer_clarabel=method_name.startswith("hybrid")
+    ):
         try:
             objective = problem.solve(
                 solver=candidate,
@@ -433,11 +436,34 @@ def solve_hybrid_sdr(
     analog_beamformer = hybrid_analog_beamformer(config, scenario)
     if receive_combiner is None:
         receive_combiner = random_hybrid_combiner(config, rng)
-    return solve_sdr(
+    solver_basis, basis_transform = np.linalg.qr(analog_beamformer, mode="reduced")
+    result = solve_sdr(
         config,
         scenario,
-        transmit_basis=analog_beamformer,
+        transmit_basis=solver_basis,
         receive_combiner=receive_combiner,
         method_name="hybrid-two-stage-sdr",
         **kwargs,
     )
+    solver_baseband_covariance = result.metadata["baseband_covariance"]
+    analog_baseband_covariance = np.linalg.solve(
+        basis_transform,
+        np.linalg.solve(
+            basis_transform,
+            solver_baseband_covariance.conj().T,
+        ).conj().T,
+    )
+    solver_baseband_beamformers = (
+        solver_basis.conj().T @ result.waveform.communication_beamformers
+    )
+    analog_baseband_beamformers = np.linalg.solve(
+        basis_transform, solver_baseband_beamformers
+    )
+    metadata = {
+        **result.metadata,
+        "baseband_covariance": _hermitian(analog_baseband_covariance),
+        "baseband_communication_beamformers": analog_baseband_beamformers,
+        "solver_basis": solver_basis,
+        "transmit_basis": analog_beamformer,
+    }
+    return replace(result, metadata=metadata)

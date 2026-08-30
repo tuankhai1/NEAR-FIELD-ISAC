@@ -49,7 +49,11 @@ def _add_common_arguments(
     )
     parser.add_argument("--seed", type=int, default=2023)
     parser.add_argument("--output", type=Path, default=Path("results"))
-    parser.add_argument("--solver", default="auto", help="auto, MOSEK, CLARABEL, or SCS")
+    parser.add_argument(
+        "--solver",
+        default="auto",
+        help="auto selects by architecture; or force MOSEK, CLARABEL, or SCS",
+    )
     parser.add_argument("--tolerance", type=float, default=1.0e-7)
     parser.add_argument("--max-iterations", type=int, default=20_000)
     parser.add_argument(
