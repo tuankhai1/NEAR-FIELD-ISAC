@@ -6,7 +6,7 @@ import csv
 import json
 import os
 import tempfile
-from collections.abc import Iterable
+from collections.abc import Iterable, MutableMapping
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import replace
 from pathlib import Path
@@ -226,9 +226,10 @@ def reproduce_figure3(
     grid_size: int = 121,
     solver: str = "auto",
     verbose: bool = False,
-    tolerance: float = 1.0e-5,
+    tolerance: float = 1.0e-7,
     max_iterations: int = 20_000,
     solver_threads: int | None = None,
+    precomputed_result: OptimizationResult | None = None,
 ) -> dict[str, Any]:
     """Reproduce the near-/far-field MUSIC comparison in paper Fig. 3."""
 
@@ -240,9 +241,20 @@ def reproduce_figure3(
     solver_options = _solver_kwargs(
         solver, verbose, tolerance, max_iterations, solver_threads
     )
-    waveform, optimization_result = _waveform_for_figure3(
-        config, scenario, optimizer, solver_options, rng
-    )
+    if precomputed_result is not None:
+        if optimizer != "sdr":
+            raise ValueError("a precomputed Figure 3 result requires optimizer='sdr'")
+        if precomputed_result.waveform.covariance.shape != (
+            config.n_antennas,
+            config.n_antennas,
+        ):
+            raise ValueError("precomputed Figure 3 result is incompatible with config")
+        waveform = precomputed_result.waveform
+        optimization_result = precomputed_result
+    else:
+        waveform, optimization_result = _waveform_for_figure3(
+            config, scenario, optimizer, solver_options, rng
+        )
     rates = communication_rates(
         scenario.communication_channels,
         waveform.covariance,
@@ -684,7 +696,10 @@ def _solve_figure2_point(
     receive_combiner: np.ndarray,
     rate: float,
     solver_options: dict[str, Any],
-) -> list[dict[str, float | str]]:
+) -> tuple[
+    list[dict[str, float | str]],
+    tuple[OptimizationResult, OptimizationResult],
+]:
     full = solve_fully_digital_sdr(
         config, scenario, min_rate=rate, **solver_options
     )
@@ -695,10 +710,11 @@ def _solve_figure2_point(
         receive_combiner=receive_combiner,
         **solver_options,
     )
-    return [
+    rows = [
         _curve_row(config, scenario, full, "minimum_rate", rate),
         _curve_row(config, scenario, hybrid, "minimum_rate", rate),
     ]
+    return rows, (full, hybrid)
 
 
 def reproduce_figure2(
@@ -708,10 +724,14 @@ def reproduce_figure2(
     output_dir: str | Path,
     solver: str = "auto",
     verbose: bool = False,
-    tolerance: float = 1.0e-5,
+    tolerance: float = 1.0e-7,
     max_iterations: int = 20_000,
     solver_threads: int | None = None,
     workers: int = 1,
+    result_cache: MutableMapping[
+        float, tuple[OptimizationResult, OptimizationResult]
+    ]
+    | None = None,
 ) -> dict[str, Any]:
     """Reproduce the sensing/communication tradeoff in paper Fig. 2."""
 
@@ -728,16 +748,25 @@ def reproduce_figure2(
     rows: list[dict[str, Any]] = []
     if workers == 1:
         for index, rate in enumerate(rates, start=1):
-            print(f"  Figure 2 [{index}/{len(rates)}]: R_min={float(rate):g} bit/s/Hz")
-            rows.extend(
-                _solve_figure2_point(
+            numeric_rate = float(rate)
+            print(f"  Figure 2 [{index}/{len(rates)}]: R_min={numeric_rate:g} bit/s/Hz")
+            if result_cache is not None and numeric_rate in result_cache:
+                full, hybrid = result_cache[numeric_rate]
+                point_rows = [
+                    _curve_row(config, scenario, full, "minimum_rate", numeric_rate),
+                    _curve_row(config, scenario, hybrid, "minimum_rate", numeric_rate),
+                ]
+            else:
+                point_rows, point_results = _solve_figure2_point(
                     config,
                     scenario,
                     receive_combiner,
-                    float(rate),
+                    numeric_rate,
                     solver_options,
                 )
-            )
+                if result_cache is not None:
+                    result_cache[numeric_rate] = point_results
+            rows.extend(point_rows)
     else:
         print(f"  Figure 2: solving {len(rates)} rate points with {workers} workers")
         with ProcessPoolExecutor(max_workers=workers) as executor:
@@ -754,7 +783,10 @@ def reproduce_figure2(
             }
             for completed, future in enumerate(as_completed(futures), start=1):
                 rate = futures[future]
-                rows.extend(future.result())
+                point_rows, point_results = future.result()
+                rows.extend(point_rows)
+                if result_cache is not None:
+                    result_cache[rate] = point_results
                 print(
                     f"  Figure 2 [{completed}/{len(rates)} completed]: "
                     f"R_min={rate:g} bit/s/Hz"
@@ -815,6 +847,24 @@ def _solve_figure4_point(
         receive_combiner=receive_combiner,
         **solver_options,
     )
+    return _figure4_rows_from_results(
+        distance_config,
+        scenario,
+        receive_combiner,
+        distance,
+        full,
+        hybrid,
+    )
+
+
+def _figure4_rows_from_results(
+    distance_config: SimulationConfig,
+    scenario: Scenario,
+    receive_combiner: np.ndarray,
+    distance: float,
+    full: OptimizationResult,
+    hybrid: OptimizationResult,
+) -> list[dict[str, float | str]]:
     full_row = _curve_row(
         distance_config, scenario, full, "distance_m", distance
     )
@@ -850,10 +900,14 @@ def reproduce_figure4(
     output_dir: str | Path,
     solver: str = "auto",
     verbose: bool = False,
-    tolerance: float = 1.0e-5,
+    tolerance: float = 1.0e-7,
     max_iterations: int = 20_000,
     solver_threads: int | None = None,
     workers: int = 1,
+    precomputed_results: dict[
+        float, tuple[OptimizationResult, OptimizationResult]
+    ]
+    | None = None,
 ) -> dict[str, Any]:
     """Reproduce the range-dependence experiment in paper Fig. 4.
 
@@ -875,19 +929,61 @@ def reproduce_figure4(
     rows: list[dict[str, Any]] = []
     if workers == 1:
         for index, distance in enumerate(distances, start=1):
-            print(f"  Figure 4 [{index}/{len(distances)}]: range={float(distance):g} m")
-            rows.extend(
-                _solve_figure4_point(
+            numeric_distance = float(distance)
+            print(f"  Figure 4 [{index}/{len(distances)}]: range={numeric_distance:g} m")
+            if precomputed_results is not None and numeric_distance in precomputed_results:
+                distance_config = config.with_updates(target_range=numeric_distance)
+                scenario = _scenario_at_range(
+                    distance_config,
+                    base_scenario,
+                    numeric_distance,
+                    fixed_target_gain,
+                )
+                full, hybrid = precomputed_results[numeric_distance]
+                point_rows = _figure4_rows_from_results(
+                    distance_config,
+                    scenario,
+                    receive_combiner,
+                    numeric_distance,
+                    full,
+                    hybrid,
+                )
+            else:
+                point_rows = _solve_figure4_point(
                     config,
                     base_scenario,
                     receive_combiner,
-                    float(distance),
+                    numeric_distance,
                     fixed_target_gain,
                     solver_options,
                 )
-            )
+            rows.extend(point_rows)
     else:
         print(f"  Figure 4: solving {len(distances)} distances with {workers} workers")
+        pending_distances: list[float] = []
+        for distance in distances:
+            numeric_distance = float(distance)
+            if precomputed_results is None or numeric_distance not in precomputed_results:
+                pending_distances.append(numeric_distance)
+                continue
+            distance_config = config.with_updates(target_range=numeric_distance)
+            scenario = _scenario_at_range(
+                distance_config,
+                base_scenario,
+                numeric_distance,
+                fixed_target_gain,
+            )
+            full, hybrid = precomputed_results[numeric_distance]
+            rows.extend(
+                _figure4_rows_from_results(
+                    distance_config,
+                    scenario,
+                    receive_combiner,
+                    numeric_distance,
+                    full,
+                    hybrid,
+                )
+            )
         with ProcessPoolExecutor(max_workers=workers) as executor:
             futures = {
                 executor.submit(
@@ -899,7 +995,7 @@ def reproduce_figure4(
                     fixed_target_gain,
                     solver_options,
                 ): float(distance)
-                for distance in distances
+                for distance in pending_distances
             }
             for completed, future in enumerate(as_completed(futures), start=1):
                 distance = futures[future]

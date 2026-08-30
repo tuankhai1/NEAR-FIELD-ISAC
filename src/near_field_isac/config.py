@@ -1,4 +1,4 @@
-"""Simulation parameters and paper/quick presets."""
+"""Simulation parameters and smoke/quick/paper presets."""
 
 from __future__ import annotations
 
@@ -60,7 +60,19 @@ class SimulationConfig:
 
     @classmethod
     def quick(cls, **updates: object) -> SimulationConfig:
-        """Return a small deterministic preset for tests and local smoke runs."""
+        """Return the paper system model for a reduced-workload reproduction.
+
+        ``quick`` deliberately keeps the physical and communication dimensions
+        from the paper.  Runtime reductions belong in the experiment sampling
+        (fewer sweep/grid points), because changing the antenna/user counts
+        materially changes the CRB curves and MUSIC spectrum.
+        """
+
+        return replace(cls(), **updates)
+
+    @classmethod
+    def smoke(cls, **updates: object) -> SimulationConfig:
+        """Return a tiny deterministic model for tests and installation checks."""
 
         config = cls(
             n_antennas=17,
@@ -115,4 +127,3 @@ class SimulationConfig:
         """
 
         return self.wavelength / (4.0 * pi)
-

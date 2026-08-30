@@ -32,7 +32,7 @@ The project does not require a virtual environment. For development tools:
 python -m pip install -e ".[optimization,dev]"
 ```
 
-CVXPY automatically tries MOSEK, CLARABEL, then SCS when `--solver auto` is used. MOSEK is recommended for the paper-size SDP; CLARABEL is sufficient for quick runs.
+CVXPY automatically tries MOSEK, CLARABEL, then SCS when `--solver auto` is used. MOSEK is recommended for both `quick` and `paper`, which use the same paper-size SDP. CLARABEL is sufficient for `smoke` installation checks.
 
 ## Usage
 
@@ -48,10 +48,18 @@ This is equivalent to:
 python main.py all --preset paper
 ```
 
-Run a short end-to-end check:
+Run an accurate reduced-workload reproduction. This keeps the paper's 65
+antennas, 4 users, and 5 RF chains, but uses fewer curve/grid samples and reuses
+the nominal optimization across Figures 2--4:
 
 ```bash
-python main.py all --preset quick --solver CLARABEL --workers 1
+python main.py all --preset quick --solver MOSEK --workers 1
+```
+
+Run a short end-to-end installation check with the intentionally tiny model:
+
+```bash
+python main.py all --preset smoke --solver CLARABEL --workers 1
 ```
 
 Run one experiment:
@@ -74,7 +82,7 @@ Useful options:
 
 | Option | Purpose |
 |---|---|
-| `--preset quick|paper` | Small validation setup or published setup |
+| `--preset smoke|quick|paper` | Tiny validation model, reduced sampling, or full published sampling |
 | `--solver auto|MOSEK|CLARABEL|SCS` | SDP solver |
 | `--optimizer zf|sdr|hybrid` | Fig. 3 waveform method |
 | `--rates ...` / `--distances ...` | Custom Fig. 2/4 sweep points |
@@ -92,7 +100,8 @@ Times are approximate and depend strongly on the solver, CPU, RAM, and scenario 
 
 | Run | Expected time | Practical minimum |
 |---|---:|---|
-| Full `quick` pipeline | 15–30 s | 4 cores, 8 GB RAM |
+| Full `smoke` pipeline | 15–30 s | 4 cores, 8 GB RAM |
+| Full `quick` pipeline | MOSEK: 15–50 min | 8 cores, 16 GB RAM; 32 GB recommended |
 | Full `paper` pipeline | MOSEK: 25–90 min; CLARABEL: 1.5–6 h | 8 cores, 16 GB RAM; 32 GB recommended |
 | Fig. 2 `paper` | MOSEK: 15–50 min; CLARABEL: 1–4 h | 8 cores, 16 GB RAM |
 | Fig. 3 `paper`, ZF | 2–10 s | 2 cores, 4 GB RAM |
@@ -147,7 +156,7 @@ As target distance increases, the wavefront becomes more planar and range-depend
 ├── src/near_field_isac/
 │   ├── channels.py              # near-/far-field channel models
 │   ├── communication.py         # rates and ZF baseline
-│   ├── config.py                # quick/paper configurations
+│   ├── config.py                # smoke/quick/paper configurations
 │   ├── fim.py                   # FIM and CRB
 │   ├── music.py                 # echo simulation and MUSIC
 │   ├── optimization.py          # fully digital and hybrid SDR

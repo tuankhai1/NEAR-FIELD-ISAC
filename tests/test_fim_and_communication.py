@@ -12,7 +12,7 @@ from near_field_isac.fim import (
 
 
 def test_zf_baseline_meets_rate_and_power_constraints() -> None:
-    config = SimulationConfig.quick()
+    config = SimulationConfig.smoke()
     scenario = generate_scenario(config)
     waveform = zf_sensing_baseline(config, scenario.communication_channels)
     rates = communication_rates(
@@ -26,7 +26,7 @@ def test_zf_baseline_meets_rate_and_power_constraints() -> None:
 
 
 def test_fim_physical_scaling_and_crb_are_well_formed() -> None:
-    config = SimulationConfig.quick()
+    config = SimulationConfig.smoke()
     scenario = generate_scenario(config)
     covariance = config.transmit_power / config.n_antennas * np.eye(config.n_antennas)
     physical = fisher_information_blocks(config, covariance, scenario.target_gain)
@@ -52,7 +52,7 @@ def test_fim_physical_scaling_and_crb_are_well_formed() -> None:
 
 
 def test_far_field_angle_crb_is_finite_and_improves_with_power() -> None:
-    config = SimulationConfig.quick()
+    config = SimulationConfig.smoke()
     scenario = generate_scenario(config)
     identity = np.eye(config.n_antennas, dtype=np.complex128)
     low_power = far_field_angle_crb(

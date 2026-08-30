@@ -19,8 +19,23 @@ def test_paper_parameters_match_section_iv() -> None:
     assert np.isclose(config.noise_power, 1.0e-6)
 
 
+def test_quick_keeps_the_paper_system_dimensions() -> None:
+    quick = SimulationConfig.quick()
+    paper = SimulationConfig.paper()
+    assert quick.n_antennas == paper.n_antennas == 65
+    assert quick.n_users == paper.n_users == 4
+    assert quick.n_rf_chains == paper.n_rf_chains == 5
+
+
+def test_smoke_uses_the_small_validation_dimensions() -> None:
+    config = SimulationConfig.smoke()
+    assert config.n_antennas == 17
+    assert config.n_users == 2
+    assert config.n_rf_chains == 3
+
+
 def test_response_has_unit_modulus_and_far_field_limit() -> None:
-    config = SimulationConfig.quick()
+    config = SimulationConfig.smoke()
     angle = np.deg2rad(37.0)
     near = near_field_response(config, 10_000.0, angle)
     far = far_field_response(config, angle)
@@ -29,7 +44,7 @@ def test_response_has_unit_modulus_and_far_field_limit() -> None:
 
 
 def test_analytic_response_derivatives_match_finite_difference() -> None:
-    config = SimulationConfig.quick()
+    config = SimulationConfig.smoke()
     distance = 20.0
     angle = np.deg2rad(45.0)
     _, derivative_range, derivative_angle = response_derivatives(config, distance, angle)
@@ -45,4 +60,3 @@ def test_analytic_response_derivatives_match_finite_difference() -> None:
     ) / (2.0 * angle_step)
     assert np.allclose(derivative_range, numerical_range, rtol=3e-5, atol=1e-7)
     assert np.allclose(derivative_angle, numerical_angle, rtol=3e-5, atol=1e-7)
-

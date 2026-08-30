@@ -10,20 +10,47 @@ from pathlib import Path
 from .config import SimulationConfig
 from .experiments import reproduce_figure2, reproduce_figure3, reproduce_figure4
 
+SMOKE_RATES = [0.0, 2.0, 4.0]
+QUICK_RATES = [0.0, 5.0, 8.0, 9.0, 10.0]
+PAPER_RATES = [float(value) for value in range(11)]
+SMOKE_DISTANCES = [5.0, 20.0, 40.0]
+QUICK_DISTANCES = [5.0, 10.0, 20.0, 30.0, 40.0]
+PAPER_DISTANCES = [float(value) for value in range(5, 41, 5)]
+GRID_SIZES = {"smoke": 121, "quick": 281, "paper": 500}
+
+
+def _default_rates(preset: str) -> list[float]:
+    return {
+        "smoke": SMOKE_RATES,
+        "quick": QUICK_RATES,
+        "paper": PAPER_RATES,
+    }[preset].copy()
+
+
+def _default_distances(preset: str) -> list[float]:
+    return {
+        "smoke": SMOKE_DISTANCES,
+        "quick": QUICK_DISTANCES,
+        "paper": PAPER_DISTANCES,
+    }[preset].copy()
+
 
 def _add_common_arguments(
     parser: argparse.ArgumentParser, *, default_preset: str = "quick"
 ) -> None:
     parser.add_argument(
         "--preset",
-        choices=("quick", "paper"),
+        choices=("smoke", "quick", "paper"),
         default=default_preset,
-        help="quick uses 17 antennas; paper uses the published 65-antenna setup",
+        help=(
+            "smoke uses a tiny model; quick and paper both use the published "
+            "65-antenna model with reduced/full sampling"
+        ),
     )
     parser.add_argument("--seed", type=int, default=2023)
     parser.add_argument("--output", type=Path, default=Path("results"))
     parser.add_argument("--solver", default="auto", help="auto, MOSEK, CLARABEL, or SCS")
-    parser.add_argument("--tolerance", type=float, default=1.0e-5)
+    parser.add_argument("--tolerance", type=float, default=1.0e-7)
     parser.add_argument("--max-iterations", type=int, default=20_000)
     parser.add_argument(
         "--solver-threads",
@@ -77,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         nargs="+",
         default=None,
-        help="rate values; defaults to 0,2,4 for quick and 0..10 for paper",
+        help="rate values; defaults depend on the selected preset",
     )
     figure2.add_argument("--workers", type=int, default=1)
 
@@ -88,7 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         nargs="+",
         default=None,
-        help="distance values; defaults to 5,20,40 for quick and 5:5:40 for paper",
+        help="distance values; defaults depend on the selected preset",
     )
     figure4.add_argument("--workers", type=int, default=1)
     return parser
@@ -96,7 +123,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
-    config_factory = SimulationConfig.quick if args.preset == "quick" else SimulationConfig.paper
+    config_factory = {
+        "smoke": SimulationConfig.smoke,
+        "quick": SimulationConfig.quick,
+        "paper": SimulationConfig.paper,
+    }[args.preset]
     config = config_factory(seed=args.seed)
     common = {
         "output_dir": args.output / args.experiment,
@@ -107,15 +138,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         "solver_threads": args.solver_threads,
     }
     if args.experiment == "all":
-        rates = args.rates or (
-            [0.0, 2.0, 4.0] if args.preset == "quick" else list(range(11))
-        )
-        distances = args.distances or (
-            [5.0, 20.0, 40.0]
-            if args.preset == "quick"
-            else [float(value) for value in range(5, 41, 5)]
-        )
-        grid_size = args.grid_size or (121 if args.preset == "quick" else 500)
+        rates = args.rates or _default_rates(args.preset)
+        distances = args.distances or _default_distances(args.preset)
+        grid_size = args.grid_size or GRID_SIZES[args.preset]
         shared = {
             "solver": args.solver,
             "verbose": args.verbose,
@@ -127,20 +152,26 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"Full pipeline: preset={args.preset}, solver={args.solver}, "
             f"grid={grid_size}x{grid_size}, workers={args.workers}."
         )
+        result_cache = {}
         print("[1/3] Reproducing Figure 2: RCRB versus minimum rate...")
         figure2_summary = reproduce_figure2(
             config,
             rates,
             output_dir=args.output / "figure2",
             workers=args.workers,
+            result_cache=result_cache,
             **shared,
         )
+        nominal_results = result_cache.get(float(config.min_rate))
         print("[2/3] Reproducing Figure 3: near-/far-field MUSIC...")
         figure3_summary = reproduce_figure3(
             config,
             output_dir=args.output / "figure3",
             optimizer="sdr",
             grid_size=grid_size,
+            precomputed_result=(
+                nominal_results[0] if nominal_results is not None else None
+            ),
             **shared,
         )
         print("[3/3] Reproducing Figure 4: RCRB versus target distance...")
@@ -149,6 +180,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             distances,
             output_dir=args.output / "figure4",
             workers=args.workers,
+            precomputed_results=(
+                {float(config.target_range): nominal_results}
+                if nominal_results is not None
+                else None
+            ),
             **shared,
         )
         details = {
@@ -172,7 +208,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "summary_file": str(summary_path),
         }
     elif args.experiment == "figure3":
-        grid_size = args.grid_size or (121 if args.preset == "quick" else 500)
+        grid_size = args.grid_size or GRID_SIZES[args.preset]
         summary = reproduce_figure3(
             config,
             optimizer=args.optimizer,
@@ -180,13 +216,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             **common,
         )
     elif args.experiment == "figure2":
-        rates = args.rates or ([0.0, 2.0, 4.0] if args.preset == "quick" else list(range(11)))
+        rates = args.rates or _default_rates(args.preset)
         summary = reproduce_figure2(config, rates, workers=args.workers, **common)
     else:
-        distances = args.distances or (
-            [5.0, 20.0, 40.0]
-            if args.preset == "quick"
-            else [float(value) for value in range(5, 41, 5)]
-        )
+        distances = args.distances or _default_distances(args.preset)
         summary = reproduce_figure4(config, distances, workers=args.workers, **common)
     print(json.dumps(summary, indent=2, sort_keys=True))

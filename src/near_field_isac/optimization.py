@@ -76,10 +76,13 @@ def _solve_options(
         if solver_threads is not None:
             options["max_threads"] = solver_threads
         return options
-    if solver == "MOSEK" and solver_threads is not None:
-        return {
-            "mosek_params": {"MSK_IPAR_NUM_THREADS": solver_threads},
+    if solver == "MOSEK":
+        mosek_params = {
+            "MSK_IPAR_INTPNT_MAX_ITERATIONS": max_iterations,
         }
+        if solver_threads is not None:
+            mosek_params["MSK_IPAR_NUM_THREADS"] = solver_threads
+        return {"eps": tolerance, "mosek_params": mosek_params}
     return {}
 
 
@@ -190,7 +193,7 @@ def solve_sdr(
     min_rate: float | None = None,
     solver: str = "auto",
     verbose: bool = False,
-    tolerance: float = 1.0e-5,
+    tolerance: float = 1.0e-7,
     max_iterations: int = 20_000,
     solver_threads: int | None = None,
     transmit_basis: ComplexArray | None = None,
