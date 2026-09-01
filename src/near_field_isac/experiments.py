@@ -44,7 +44,6 @@ from .optimization import (
     solve_hybrid_sdr,
 )
 
-
 _PAPER_PLOT_STYLE = {
     "font.family": "serif",
     "font.serif": ["Times New Roman", "STIXGeneral", "DejaVu Serif"],
