@@ -23,8 +23,8 @@ references.
 Python 3.10 or newer is required.
 
 ```bash
-git clone <your-repository-url>
-cd near-field-isac-reproduction
+git clone https://github.com/tuankhai1/NEAR-FIELD-ISAC.git
+cd NEAR-FIELD-ISAC
 python -m pip install -e ".[optimization]"
 ```
 
@@ -33,6 +33,11 @@ The project does not require a virtual environment. For development tools:
 ```bash
 python -m pip install -e ".[optimization,dev]"
 ```
+
+The optimization extra installs CVXPY and its standard open-source solver
+dependencies. MOSEK is optional and must be installed separately with a valid
+MOSEK license. If MOSEK is unavailable, `--solver auto` falls back to another
+installed SDP-capable solver.
 
 With `--solver auto`, the pipeline prefers MOSEK for the paper-size fully
 digital SDP and CLARABEL for the compact hybrid SDP, with the other installed
@@ -51,6 +56,12 @@ This is equivalent to:
 
 ```bash
 python main.py all --preset paper
+```
+
+After the editable installation, the console command is equivalent:
+
+```bash
+nf-isac all --preset paper
 ```
 
 Run an accurate reduced-workload reproduction. This keeps the paper's 65
@@ -126,6 +137,7 @@ Each experiment saves a plot and machine-readable data:
 
 ```text
 results/
+├── all_summary.json
 ├── figure2/
 │   ├── figure2_rcrb_vs_rate.png
 │   ├── figure2_rcrb_vs_rate.csv
@@ -140,7 +152,23 @@ results/
     └── figure4_summary.json
 ```
 
-Generated results are ignored by Git. Use `--output PATH` to change the output root.
+Generated results are ignored by Git. Running an experiment again with the same
+output root overwrites files with the same names. Use `--output PATH` to preserve
+separate runs, seeds, or solver configurations.
+
+## Validating a run
+
+The CSV and JSON summaries record the solver name/status, requested sweep point,
+minimum achieved communication rate, and both RCRBs. Check that:
+
+- every RCRB is finite and non-negative;
+- `minimum_achieved_rate` meets the requested rate within the solver tolerance;
+- `optimal` is preferred, while `optimal_inaccurate` should be rerun with a tighter
+  tolerance or a different solver when the rate margin is small.
+
+The test suite additionally checks the transmit-power constraint, positive
+semidefiniteness of the residual sensing covariance, channel derivatives, and the
+main MUSIC/optimization invariants.
 
 ## Figure interpretation
 
@@ -157,6 +185,16 @@ The near-field spherical wavefront depends on both range and angle, producing a 
 ### Figure 4 — transition toward the far field
 
 As target distance increases, the wavefront becomes more planar and range-dependent phase curvature disappears. Range RCRB therefore grows, while angle RCRB approaches its far-field reference. Target pathloss is held fixed to isolate this geometry effect.
+
+The lower panel uses separate vertical axes: the left axis is for FD and the right
+axis is for HB. Consequently, the vertical placement of a green HB curve cannot be
+compared directly with a red FD curve; compare their numerical values or their own
+axis labels instead.
+
+The horizontal far-field references are evaluated using the covariance optimized
+at the largest swept near-field distance. They are not obtained by solving a
+separate far-field waveform-optimization problem. This explicit reconstruction
+convention is also recorded in `figure4_summary.json`.
 
 ## Code structure
 
@@ -183,8 +221,23 @@ As target distance increases, the wavefront becomes more planar and range-depend
   user locations and the complex target reflection are random, so their exact
   realization materially changes the RCRB curves. This baseline uses
   `seed=2023` and records it in each JSON summary.
+- Figures 2 and 4 use one fixed seeded scenario and one fixed hybrid receive
+  combiner over each sweep; the curves are not Monte Carlo averages. NumPy and
+  MATLAB do not generate the same realization from the same numeric seed.
+- RCRB scales inversely with the magnitude of the random complex target
+  reflection. Absolute curve levels can therefore differ substantially between
+  otherwise identical scenario realizations.
 - The authors' public code implements fully digital Fig. 3. Fig. 2, Fig. 4, and the hybrid sweeps are reconstructed from the paper equations.
-- Exact pixel-level agreement is not guaranteed; compare CSV/JSON values, solver status, achieved rates, and fixed seeds rather than only the rendered images.
+- The authors corrected the round-trip response derivatives in their public
+  [`FIM.m`](https://github.com/zhaolin820/near-field-integrated-sensing-and-communications/commit/77929f8dd91ff7bd0ca4f2d915f542f1825ff24d)
+  after publication and later corrected the construction of
+  [`J_12`](https://github.com/zhaolin820/near-field-integrated-sensing-and-communications/commit/916d2c348b0eb3dcb86dce3d11d1c023591a38bc).
+  This repository follows the corrected derivative of `a a^T` and the corrected
+  real-valued FIM coupling. The original Fig. 2/4 scripts and RNG realization are
+  unavailable, so numerical agreement with the published curves is not expected
+  to be exact. There is currently no legacy-FIM compatibility mode.
+- Exact pixel-level agreement is not guaranteed; compare CSV/JSON values, solver
+  status, achieved rates, and fixed seeds rather than only the rendered images.
 
 ## Tests
 
