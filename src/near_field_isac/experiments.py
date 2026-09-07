@@ -8,8 +8,7 @@ import os
 import tempfile
 from collections.abc import Iterable, MutableMapping
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import replace
-from functools import wraps
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
@@ -21,16 +20,12 @@ os.environ.setdefault(
 import matplotlib  # noqa: E402
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.lines import Line2D  # noqa: E402
-from matplotlib.ticker import ScalarFormatter  # noqa: E402
 
 from .channels import Scenario, generate_scenario, near_field_response
 from .communication import Waveform, communication_rates, zf_sensing_baseline
 from .config import SimulationConfig
 from .fim import crb_matrix, far_field_angle_crb, root_crb
 from .music import (
-    MusicResult,
     complex_normal,
     generate_transmit_samples,
     music_spectrum_xy,
@@ -43,29 +38,15 @@ from .optimization import (
     solve_fully_digital_sdr,
     solve_hybrid_sdr,
 )
-
-_PAPER_PLOT_STYLE = {
-    "font.family": "serif",
-    "font.serif": ["Times New Roman", "STIXGeneral", "DejaVu Serif"],
-    "mathtext.fontset": "stix",
-    "font.size": 10.0,
-    "axes.labelsize": 11.5,
-    "axes.linewidth": 0.8,
-    "xtick.labelsize": 10.0,
-    "ytick.labelsize": 10.0,
-    "legend.fontsize": 9.5,
-}
-
-
-def _with_paper_plot_style(function: Any) -> Any:
-    """Apply the paper-like serif typography only while rendering a figure."""
-
-    @wraps(function)
-    def styled(*args: Any, **kwargs: Any) -> Any:
-        with plt.rc_context(_PAPER_PLOT_STYLE):
-            return function(*args, **kwargs)
-
-    return styled
+from .plotting import (
+    plot_figure2 as _plot_figure2,
+)
+from .plotting import (
+    plot_figure4 as _plot_figure4,
+)
+from .plotting import (
+    plot_music_pair as _plot_music_pair,
+)
 
 
 def _prepare_output(path: str | Path) -> Path:
@@ -76,6 +57,79 @@ def _prepare_output(path: str | Path) -> Path:
 
 def _save_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _save_solution(output: Path, name: str, result: OptimizationResult) -> str:
+    arrays = {
+        "covariance": result.waveform.covariance,
+        "beamformers": result.waveform.communication_beamformers,
+        "sensing_covariance": result.waveform.sensing_covariance,
+        "rates": result.rates,
+    }
+    arrays.update(
+        {key: value for key, value in result.metadata.items() if isinstance(value, np.ndarray)}
+    )
+    path = output / (name + ".npz")
+    np.savez_compressed(path, **arrays)
+    metadata = {
+        key: value for key, value in result.metadata.items() if not isinstance(value, np.ndarray)
+    }
+    _save_json(
+        output / (name + ".json"),
+        {
+            "solver": result.solver,
+            "status": result.status,
+            "objective": result.objective,
+            **metadata,
+        },
+    )
+    return path.name
+
+
+def _save_provenance(
+    output: Path, config: SimulationConfig, scenario: Scenario, receive_combiner: np.ndarray | None
+) -> None:
+    import hashlib
+    import importlib.metadata
+    import platform
+
+    arrays = {
+        "communication_channels": scenario.communication_channels,
+        "target_channel": scenario.target_channel,
+        "target_gain": np.array(scenario.target_gain),
+        "target_reflection": np.array(scenario.target_reflection),
+        "user_ranges": scenario.user_ranges,
+        "user_angles": scenario.user_angles,
+    }
+    if receive_combiner is not None:
+        arrays["receive_combiner"] = receive_combiner
+    np.savez_compressed(output / "scenario.npz", **arrays)
+    versions = {}
+    for package in ["numpy", "scipy", "matplotlib", "cvxpy", "mosek", "clarabel"]:
+        try:
+            versions[package] = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            versions[package] = None
+    source_hashes = {
+        path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(Path(__file__).parent.glob("*.py"))
+    }
+    _save_json(
+        output / "provenance.json",
+        {
+            "config": asdict(config),
+            "versions": versions,
+            "python": platform.python_version(),
+            "source_sha256": source_hashes,
+            "user_ranges_m": scenario.user_ranges.tolist(),
+            "user_angles_deg": np.rad2deg(scenario.user_angles).tolist(),
+            "target_gain": [scenario.target_gain.real, scenario.target_gain.imag],
+            "target_reflection": [scenario.target_reflection.real, scenario.target_reflection.imag],
+            "hybrid_crb_noise_model": "Paper approximation: N * sigma^2 * I",
+            "hybrid_music_noise_model": "Exact combined antenna noise with whitening",
+            "objective_units": "range variance in m^2 plus angle variance in rad^2",
+        },
+    )
 
 
 def _solver_kwargs(
@@ -92,28 +146,6 @@ def _solver_kwargs(
         "max_iterations": max_iterations,
         "solver_threads": solver_threads,
     }
-
-
-def _run_isolated_solver_call(function: Any, *args: Any) -> Any:
-    """Run one paper-size solve in a disposable process.
-
-    CVXPY and native conic solvers can retain large allocator arenas after a
-    solve.  A short-lived worker guarantees that memory is returned to the OS
-    before the next sweep point.
-    """
-
-    with ProcessPoolExecutor(max_workers=1) as executor:
-        return executor.submit(function, *args).result()
-
-
-def _needs_solver_isolation(config: SimulationConfig) -> bool:
-    return config.n_antennas >= SimulationConfig.paper().n_antennas
-
-
-def _run_solver_call(function: Any, *args: Any, isolate: bool) -> Any:
-    if isolate:
-        return _run_isolated_solver_call(function, *args)
-    return function(*args)
 
 
 def _waveform_for_figure3(
@@ -134,147 +166,15 @@ def _waveform_for_figure3(
     raise ValueError("optimizer must be 'zf', 'sdr', or 'hybrid'")
 
 
-@_with_paper_plot_style
-def _plot_music_pair(
-    near: MusicResult,
-    far: MusicResult,
-    destination: Path,
-    *,
-    target_range: float,
-    target_angle: float,
-) -> None:
-    figure = plt.figure(figsize=(9.2, 4.25))
-    target_x = target_range * np.cos(target_angle)
-    target_y = target_range * np.sin(target_angle)
-    legend_handles = [
-        Line2D(
-            [0],
-            [0],
-            marker="o",
-            color="none",
-            markerfacecolor="#d6ae3d",
-            markeredgecolor="#d6ae3d",
-            markersize=7,
-            label="BS",
-        ),
-        Line2D(
-            [0],
-            [0],
-            marker="*",
-            color="none",
-            markerfacecolor="#e53935",
-            markeredgecolor="#e53935",
-            markersize=10,
-            label="Actual location of target",
-        ),
-    ]
-    axes = []
-    for index, (result, caption) in enumerate(
-        ((near, "(a) Near-field ISAC."), (far, "(b) Far-field ISAC.")), start=1
-    ):
-        axis = figure.add_subplot(1, 2, index, projection="3d")
-        axes.append(axis)
-        stride = max(1, result.x_grid.shape[0] // 180)
-        spectrum_db = np.clip(
-            10.0 * np.log10(np.maximum(result.spectrum, 1.0e-12)), -60.0, 0.0
-        )
-        axis.plot_surface(
-            result.y_grid[::stride, ::stride],
-            result.x_grid[::stride, ::stride],
-            spectrum_db[::stride, ::stride],
-            cmap="jet",
-            vmin=-52.0,
-            vmax=0.0,
-            linewidth=0,
-            antialiased=True,
-            shade=True,
-            rcount=180,
-            ccount=180,
-        )
-        axis.scatter(
-            [0.0],
-            [0.0],
-            [0.0],
-            color="#d6ae3d",
-            edgecolor="white",
-            linewidth=0.5,
-            marker="o",
-            s=45,
-            depthshade=False,
-            zorder=10,
-        )
-        axis.scatter(
-            [target_y],
-            [target_x],
-            [0.0],
-            color="#e53935",
-            edgecolor="white",
-            linewidth=0.4,
-            marker="*",
-            s=90,
-            depthshade=False,
-            zorder=11,
-        )
-        axis.text(
-            target_y + 0.8,
-            target_x + 0.8,
-            2.5,
-            f"({target_range:g} m, {np.rad2deg(target_angle):g}\N{DEGREE SIGN})",
-            fontsize=9,
-            ha="center",
-        )
-        # Swap the displayed horizontal axes so Matplotlib matches the paper's
-        # camera convention while preserving the physical x/y coordinates.
-        axis.set_xlabel("y (m)", labelpad=5)
-        axis.set_ylabel("x (m)", labelpad=5)
-        axis.set_zlabel("Spectrum (dB)", labelpad=5)
-        axis.set_xlim(0.0, 40.0)
-        axis.set_ylim(0.0, 40.0)
-        axis.set_zlim(-60.0, 4.0)
-        axis.set_xticks([0, 10, 20, 30, 40])
-        axis.set_yticks([0, 10, 20, 30, 40])
-        axis.set_zticks([-60, -40, -20, 0])
-        axis.view_init(elev=25, azim=52)
-        axis.set_box_aspect((1.0, 1.0, 0.56))
-        axis.tick_params(labelsize=8.5, pad=0, direction="in")
-        axis.grid(False)
-        for pane in (axis.xaxis.pane, axis.yaxis.pane, axis.zaxis.pane):
-            pane.set_facecolor((1.0, 1.0, 1.0, 0.0))
-            pane.set_edgecolor((0.70, 0.70, 0.70, 1.0))
-        axis.legend(
-            handles=legend_handles,
-            loc="upper left",
-            bbox_to_anchor=(0.0, 1.0),
-            fontsize=8.5,
-            frameon=True,
-            fancybox=False,
-            edgecolor="0.65",
-            borderpad=0.35,
-            handletextpad=0.4,
-        )
-        axis.text2D(
-            0.5,
-            -0.13,
-            caption,
-            transform=axis.transAxes,
-            ha="center",
-            va="top",
-            fontsize=11.5,
-        )
-    figure.subplots_adjust(left=0.01, right=0.99, top=0.98, bottom=0.15, wspace=0.01)
-    figure.savefig(destination, dpi=240, bbox_inches="tight")
-    plt.close(figure)
-
-
 def reproduce_figure3(
     config: SimulationConfig,
     *,
     output_dir: str | Path,
-    optimizer: str = "zf",
+    optimizer: str = "sdr",
     grid_size: int = 121,
     solver: str = "auto",
     verbose: bool = False,
-    tolerance: float = 1.0e-7,
+    tolerance: float = 1.0e-11,
     max_iterations: int = 20_000,
     solver_threads: int | None = None,
     precomputed_result: OptimizationResult | None = None,
@@ -286,9 +186,7 @@ def reproduce_figure3(
     output = _prepare_output(output_dir)
     rng = np.random.default_rng(config.seed)
     scenario = generate_scenario(config, rng)
-    solver_options = _solver_kwargs(
-        solver, verbose, tolerance, max_iterations, solver_threads
-    )
+    solver_options = _solver_kwargs(solver, verbose, tolerance, max_iterations, solver_threads)
     if precomputed_result is not None:
         if optimizer != "sdr":
             raise ValueError("a precomputed Figure 3 result requires optimizer='sdr'")
@@ -364,6 +262,10 @@ def reproduce_figure3(
         model="far",
         receive_combiner=receive_combiner,
     )
+
+    _save_provenance(output, config, scenario, receive_combiner)
+    if optimization_result is not None:
+        _save_solution(output, "nominal", optimization_result)
 
     _plot_music_pair(
         near_music,
@@ -447,298 +349,29 @@ def _curve_row(
         "objective": result.objective,
         "solver": result.solver,
         "solver_status": result.status,
+        "physical_crb_trace": result.metadata["physical_crb_trace"],
+        "minimum_rate_margin": result.metadata["minimum_rate_margin"],
+        "transmit_power_margin": result.metadata["transmit_power_margin"],
+        "minimum_sensing_covariance_eigenvalue": result.metadata[
+            "minimum_sensing_covariance_eigenvalue"
+        ],
+        "epigraph_relative_error": result.metadata["epigraph_relative_error"],
+        "validation_passed": result.metadata["validation_passed"],
+        "_result": result,
     }
 
 
 def _save_rows(path: Path, rows: list[dict[str, Any]]) -> None:
     if not rows:
         return
+    for index, row in enumerate(rows):
+        result = row.pop("_result", None)
+        if result is not None:
+            row["waveform_file"] = _save_solution(path.parent, f"point_{index:03d}", result)
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
-
-
-def _architecture_rows(
-    rows: list[dict[str, Any]], architecture: str, x_name: str
-) -> list[dict[str, Any]]:
-    selected = [row for row in rows if row["architecture"] == architecture]
-    return sorted(selected, key=lambda row: float(row[x_name]))
-
-
-def _paper_axis_style(axis: plt.Axes) -> None:
-    axis.grid(False, which="both")
-    axis.tick_params(which="both", direction="in", top=True, width=0.8)
-    axis.tick_params(which="major", length=4)
-    axis.tick_params(which="minor", length=2.5)
-    for spine in axis.spines.values():
-        spine.set_color("0.28")
-        spine.set_linewidth(0.8)
-
-
-@_with_paper_plot_style
-def _plot_figure2(rows: list[dict[str, Any]], destination: Path) -> None:
-    fd = _architecture_rows(rows, "fully-digital-sdr", "minimum_rate")
-    hb = _architecture_rows(rows, "hybrid-two-stage-sdr", "minimum_rate")
-    if not fd or not hb:
-        raise ValueError("Figure 2 needs both fully digital and hybrid rows")
-
-    figure, distance_axis = plt.subplots(figsize=(6.25, 4.45))
-    angle_axis = distance_axis.twinx()
-    blue = "#1848e8"
-    red = "#ef342a"
-    common = {"linewidth": 1.45, "markersize": 5.2, "markerfacecolor": "white"}
-
-    fd_x = [float(row["minimum_rate"]) for row in fd]
-    hb_x = [float(row["minimum_rate"]) for row in hb]
-    fd_distance = distance_axis.semilogy(
-        fd_x,
-        [float(row["range_rcrb_m"]) for row in fd],
-        color=blue,
-        linestyle="-",
-        marker="o",
-        markeredgecolor=blue,
-        label="FD, distance",
-        **common,
-    )[0]
-    hb_distance = distance_axis.semilogy(
-        hb_x,
-        [float(row["range_rcrb_m"]) for row in hb],
-        color=blue,
-        linestyle=(0, (4, 3)),
-        marker="o",
-        markeredgecolor=blue,
-        label="HB, distance",
-        **common,
-    )[0]
-    fd_angle = angle_axis.semilogy(
-        fd_x,
-        [float(row["angle_rcrb_deg"]) for row in fd],
-        color=red,
-        linestyle="-",
-        marker="s",
-        markeredgecolor=red,
-        label="FD, angle",
-        **common,
-    )[0]
-    hb_angle = angle_axis.semilogy(
-        hb_x,
-        [float(row["angle_rcrb_deg"]) for row in hb],
-        color=red,
-        linestyle=(0, (4, 3)),
-        marker="s",
-        markeredgecolor=red,
-        label="HB, angle",
-        **common,
-    )[0]
-
-    all_x = sorted({*fd_x, *hb_x})
-    distance_axis.set_xlabel("Minimum communication rate (bit/s/Hz)")
-    distance_axis.set_ylabel("RCRB for distance (m)")
-    angle_axis.set_ylabel("RCRB for angle (deg)")
-    distance_values = [
-        *[float(row["range_rcrb_m"]) for row in fd],
-        *[float(row["range_rcrb_m"]) for row in hb],
-    ]
-    angle_values = [
-        *[float(row["angle_rcrb_deg"]) for row in fd],
-        *[float(row["angle_rcrb_deg"]) for row in hb],
-    ]
-    distance_log = np.log10(distance_values)
-    angle_log = np.log10(angle_values)
-    distance_axis.set_ylim(
-        10.0 ** (float(np.min(distance_log)) - 0.05),
-        10.0 ** (float(np.max(distance_log)) + 0.16),
-    )
-    angle_axis.set_ylim(
-        10.0 ** (float(np.min(angle_log)) - 0.05),
-        10.0 ** (float(np.max(angle_log)) + 0.16),
-    )
-    distance_axis.set_xticks(all_x)
-    if len(all_x) > 7:
-        distance_axis.set_xticks(all_x[::2])
-    x_margin = max(0.15, 0.02 * (max(all_x) - min(all_x) or 1.0))
-    distance_axis.set_xlim(min(all_x) - x_margin, max(all_x) + x_margin)
-    _paper_axis_style(distance_axis)
-    angle_axis.tick_params(which="both", direction="in", right=True, width=0.8)
-    angle_axis.spines["right"].set_color("0.28")
-    angle_axis.spines["right"].set_linewidth(0.8)
-    distance_axis.legend(
-        handles=[fd_distance, fd_angle, hb_distance, hb_angle],
-        ncols=2,
-        loc="upper left",
-        frameon=True,
-        fancybox=False,
-        framealpha=0.96,
-        edgecolor="0.55",
-        fontsize=9.5,
-        columnspacing=1.0,
-        handlelength=2.6,
-        borderpad=0.45,
-    )
-
-    if len(fd_x) >= 2 and len(hb_x) >= 2:
-        hybrid_index = min(1, len(hb_x) - 1)
-        digital_index = min(1, len(fd_x) - 1)
-        x_span = max(all_x) - min(all_x) or 1.0
-        hybrid_text_x = min(
-            0.75, (hb_x[hybrid_index] - min(all_x)) / x_span + 0.08
-        )
-        digital_text_x = min(
-            0.75, (fd_x[digital_index] - min(all_x)) / x_span + 0.08
-        )
-        distance_axis.annotate(
-            "Hybrid",
-            xy=(hb_x[hybrid_index], float(hb[hybrid_index]["range_rcrb_m"])),
-            xycoords="data",
-            xytext=(hybrid_text_x, 0.67),
-            textcoords="axes fraction",
-            fontsize=10,
-            arrowprops={"arrowstyle": "-|>", "lw": 0.85, "color": "0.15"},
-        )
-        distance_axis.annotate(
-            "Fully digital",
-            xy=(fd_x[digital_index], float(fd[digital_index]["range_rcrb_m"])),
-            xycoords="data",
-            xytext=(digital_text_x, 0.23),
-            textcoords="axes fraction",
-            fontsize=10,
-            arrowprops={"arrowstyle": "-|>", "lw": 0.85, "color": "0.15"},
-        )
-
-    figure.tight_layout(pad=0.8)
-    figure.savefig(destination, dpi=240, bbox_inches="tight")
-    plt.close(figure)
-
-
-def _scientific_formatter(axis: plt.Axes) -> None:
-    formatter = ScalarFormatter(useMathText=True)
-    formatter.set_scientific(True)
-    formatter.set_powerlimits((0, 0))
-    axis.yaxis.set_major_formatter(formatter)
-
-
-@_with_paper_plot_style
-def _plot_figure4(rows: list[dict[str, Any]], destination: Path) -> None:
-    fd = _architecture_rows(rows, "fully-digital-sdr", "distance_m")
-    hb = _architecture_rows(rows, "hybrid-two-stage-sdr", "distance_m")
-    if not fd or not hb:
-        raise ValueError("Figure 4 needs both fully digital and hybrid rows")
-
-    figure, (range_axis, fd_angle_axis) = plt.subplots(
-        2,
-        1,
-        figsize=(7.0, 6.0),
-        sharex=True,
-        gridspec_kw={"height_ratios": [1.0, 1.05], "hspace": 0.08},
-    )
-    hb_angle_axis = fd_angle_axis.twinx()
-    blue = "#1848e8"
-    red = "#ef342a"
-    green = "#31852b"
-    common = {"linewidth": 1.45, "markersize": 5.2, "markerfacecolor": "white"}
-    fd_x = [float(row["distance_m"]) for row in fd]
-    hb_x = [float(row["distance_m"]) for row in hb]
-
-    fd_range = range_axis.semilogy(
-        fd_x,
-        [float(row["range_rcrb_m"]) for row in fd],
-        color=blue,
-        linestyle="-",
-        marker="o",
-        markeredgecolor=blue,
-        label="FD",
-        **common,
-    )[0]
-    hb_range = range_axis.semilogy(
-        hb_x,
-        [float(row["range_rcrb_m"]) for row in hb],
-        color=blue,
-        linestyle=(0, (4, 3)),
-        marker="o",
-        markeredgecolor=blue,
-        label="HB",
-        **common,
-    )[0]
-    range_axis.set_ylabel("RCRB (m)")
-    range_axis.legend(
-        handles=[fd_range, hb_range],
-        loc="upper left",
-        frameon=True,
-        fancybox=False,
-        framealpha=0.96,
-        edgecolor="0.55",
-        fontsize=9,
-    )
-
-    fd_near = fd_angle_axis.plot(
-        fd_x,
-        [float(row["angle_rcrb_deg"]) for row in fd],
-        color=red,
-        linestyle="-",
-        marker="s",
-        markeredgecolor=red,
-        label="FD, near-field",
-        **common,
-    )[0]
-    hb_near = hb_angle_axis.plot(
-        hb_x,
-        [float(row["angle_rcrb_deg"]) for row in hb],
-        color=green,
-        linestyle="-",
-        marker=">",
-        markeredgecolor=green,
-        label="HB, near-field",
-        **common,
-    )[0]
-    fd_far_value = float(fd[-1]["far_field_angle_rcrb_deg"])
-    hb_far_value = float(hb[-1]["far_field_angle_rcrb_deg"])
-    fd_far = fd_angle_axis.axhline(
-        fd_far_value,
-        color=red,
-        linestyle="-.",
-        linewidth=1.35,
-        label="FD, far-field",
-    )
-    hb_far = hb_angle_axis.axhline(
-        hb_far_value,
-        color=green,
-        linestyle=":",
-        linewidth=1.5,
-        label="HB, far-field",
-    )
-
-    fd_angle_axis.set_xlabel("Distance, $r$ (m)")
-    fd_angle_axis.set_ylabel("RCRB, FD (deg)")
-    hb_angle_axis.set_ylabel("RCRB, HB (deg)")
-    all_x = sorted({*fd_x, *hb_x})
-    fd_angle_axis.set_xticks(all_x)
-    x_margin = max(0.15, 0.02 * (max(all_x) - min(all_x) or 1.0))
-    fd_angle_axis.set_xlim(min(all_x) - x_margin, max(all_x) + x_margin)
-    _scientific_formatter(fd_angle_axis)
-    _scientific_formatter(hb_angle_axis)
-    _paper_axis_style(range_axis)
-    _paper_axis_style(fd_angle_axis)
-    hb_angle_axis.tick_params(which="both", direction="in", right=True, width=0.8)
-    hb_angle_axis.spines["right"].set_color("0.28")
-    hb_angle_axis.spines["right"].set_linewidth(0.8)
-    fd_angle_axis.legend(
-        handles=[fd_near, hb_near, fd_far, hb_far],
-        ncols=2,
-        loc="upper right",
-        frameon=True,
-        fancybox=False,
-        framealpha=0.96,
-        edgecolor="0.55",
-        fontsize=8.7,
-        columnspacing=1.0,
-        handlelength=2.5,
-        borderpad=0.45,
-    )
-
-    figure.subplots_adjust(left=0.13, right=0.87, top=0.98, bottom=0.10)
-    figure.savefig(destination, dpi=240, bbox_inches="tight")
-    plt.close(figure)
 
 
 def _solve_figure2_point(
@@ -751,9 +384,7 @@ def _solve_figure2_point(
     list[dict[str, float | str]],
     tuple[OptimizationResult, OptimizationResult],
 ]:
-    full = solve_fully_digital_sdr(
-        config, scenario, min_rate=rate, **solver_options
-    )
+    full = solve_fully_digital_sdr(config, scenario, min_rate=rate, **solver_options)
     hybrid = solve_hybrid_sdr(
         config,
         scenario,
@@ -775,13 +406,11 @@ def reproduce_figure2(
     output_dir: str | Path,
     solver: str = "auto",
     verbose: bool = False,
-    tolerance: float = 1.0e-7,
+    tolerance: float = 1.0e-11,
     max_iterations: int = 20_000,
     solver_threads: int | None = None,
     workers: int = 1,
-    result_cache: MutableMapping[
-        float, tuple[OptimizationResult, OptimizationResult]
-    ]
+    result_cache: MutableMapping[float, tuple[OptimizationResult, OptimizationResult]]
     | None = None,
 ) -> dict[str, Any]:
     """Reproduce the sensing/communication tradeoff in paper Fig. 2."""
@@ -793,9 +422,8 @@ def reproduce_figure2(
     rng = np.random.default_rng(config.seed)
     scenario = generate_scenario(config, rng)
     receive_combiner = random_hybrid_combiner(config, rng)
-    solver_options = _solver_kwargs(
-        solver, verbose, tolerance, max_iterations, solver_threads
-    )
+    _save_provenance(output, config, scenario, receive_combiner)
+    solver_options = _solver_kwargs(solver, verbose, tolerance, max_iterations, solver_threads)
     rows: list[dict[str, Any]] = []
     if workers == 1:
         for index, rate in enumerate(rates, start=1):
@@ -808,14 +436,12 @@ def reproduce_figure2(
                     _curve_row(config, scenario, hybrid, "minimum_rate", numeric_rate),
                 ]
             else:
-                point_rows, point_results = _run_solver_call(
-                    _solve_figure2_point,
+                point_rows, point_results = _solve_figure2_point(
                     config,
                     scenario,
                     receive_combiner,
                     numeric_rate,
                     solver_options,
-                    isolate=_needs_solver_isolation(config),
                 )
                 if result_cache is not None:
                     result_cache[numeric_rate] = point_results
@@ -840,10 +466,7 @@ def reproduce_figure2(
                 rows.extend(point_rows)
                 if result_cache is not None:
                     result_cache[rate] = point_results
-                print(
-                    f"  Figure 2 [{completed}/{len(rates)} completed]: "
-                    f"R_min={rate:g} bit/s/Hz"
-                )
+                print(f"  Figure 2 [{completed}/{len(rates)} completed]: R_min={rate:g} bit/s/Hz")
     architecture_order = {"fully-digital-sdr": 0, "hybrid-two-stage-sdr": 1}
     rows.sort(
         key=lambda row: (
@@ -890,9 +513,7 @@ def _solve_figure4_point(
     solver_options: dict[str, Any],
 ) -> list[dict[str, float | str]]:
     distance_config = config.with_updates(target_range=distance)
-    scenario = _scenario_at_range(
-        distance_config, base_scenario, distance, fixed_target_gain
-    )
+    scenario = _scenario_at_range(distance_config, base_scenario, distance, fixed_target_gain)
     full = solve_fully_digital_sdr(distance_config, scenario, **solver_options)
     hybrid = solve_hybrid_sdr(
         distance_config,
@@ -918,31 +539,8 @@ def _figure4_rows_from_results(
     full: OptimizationResult,
     hybrid: OptimizationResult,
 ) -> list[dict[str, float | str]]:
-    full_row = _curve_row(
-        distance_config, scenario, full, "distance_m", distance
-    )
-    hybrid_row = _curve_row(
-        distance_config, scenario, hybrid, "distance_m", distance
-    )
-    full_far_crb = far_field_angle_crb(
-        distance_config,
-        full.waveform.covariance,
-        scenario.target_gain,
-        angle=scenario.target_angle,
-    )
-    hybrid_far_crb = far_field_angle_crb(
-        distance_config,
-        hybrid.waveform.covariance,
-        scenario.target_gain,
-        angle=scenario.target_angle,
-        receive_combiner=receive_combiner,
-    )
-    full_row["far_field_angle_rcrb_deg"] = float(
-        np.rad2deg(np.sqrt(full_far_crb))
-    )
-    hybrid_row["far_field_angle_rcrb_deg"] = float(
-        np.rad2deg(np.sqrt(hybrid_far_crb))
-    )
+    full_row = _curve_row(distance_config, scenario, full, "distance_m", distance)
+    hybrid_row = _curve_row(distance_config, scenario, hybrid, "distance_m", distance)
     return [full_row, hybrid_row]
 
 
@@ -953,14 +551,11 @@ def reproduce_figure4(
     output_dir: str | Path,
     solver: str = "auto",
     verbose: bool = False,
-    tolerance: float = 1.0e-7,
+    tolerance: float = 1.0e-11,
     max_iterations: int = 20_000,
     solver_threads: int | None = None,
     workers: int = 1,
-    precomputed_results: dict[
-        float, tuple[OptimizationResult, OptimizationResult]
-    ]
-    | None = None,
+    precomputed_results: dict[float, tuple[OptimizationResult, OptimizationResult]] | None = None,
 ) -> dict[str, Any]:
     """Reproduce the range-dependence experiment in paper Fig. 4.
 
@@ -976,9 +571,8 @@ def reproduce_figure4(
     base_scenario = generate_scenario(config, rng)
     fixed_target_gain = base_scenario.target_gain
     receive_combiner = random_hybrid_combiner(config, rng)
-    solver_options = _solver_kwargs(
-        solver, verbose, tolerance, max_iterations, solver_threads
-    )
+    _save_provenance(output, config, base_scenario, receive_combiner)
+    solver_options = _solver_kwargs(solver, verbose, tolerance, max_iterations, solver_threads)
     rows: list[dict[str, Any]] = []
     if workers == 1:
         for index, distance in enumerate(distances, start=1):
@@ -1002,15 +596,13 @@ def reproduce_figure4(
                     hybrid,
                 )
             else:
-                point_rows = _run_solver_call(
-                    _solve_figure4_point,
+                point_rows = _solve_figure4_point(
                     config,
                     base_scenario,
                     receive_combiner,
                     numeric_distance,
                     fixed_target_gain,
                     solver_options,
-                    isolate=_needs_solver_isolation(config),
                 )
             rows.extend(point_rows)
     else:
@@ -1055,10 +647,7 @@ def reproduce_figure4(
             for completed, future in enumerate(as_completed(futures), start=1):
                 distance = futures[future]
                 rows.extend(future.result())
-                print(
-                    f"  Figure 4 [{completed}/{len(distances)} completed]: "
-                    f"range={distance:g} m"
-                )
+                print(f"  Figure 4 [{completed}/{len(distances)} completed]: range={distance:g} m")
     architecture_order = {"fully-digital-sdr": 0, "hybrid-two-stage-sdr": 1}
     rows.sort(
         key=lambda row: (
@@ -1067,21 +656,38 @@ def reproduce_figure4(
         )
     )
 
+    print("  Figure 4: optimizing independent far-field angle references")
+    far_full = solve_fully_digital_sdr(
+        config,
+        base_scenario,
+        sensing_model="far",
+        **solver_options,
+    )
+    far_hybrid = solve_hybrid_sdr(
+        config,
+        base_scenario,
+        sensing_model="far",
+        receive_combiner=receive_combiner,
+        **solver_options,
+    )
+    references = {}
+    for result in (far_full, far_hybrid):
+        value = far_field_angle_crb(
+            config,
+            result.waveform.covariance,
+            fixed_target_gain,
+            receive_combiner=result.metadata.get("receive_combiner"),
+        )
+        references[result.waveform.method] = float(np.rad2deg(np.sqrt(value)))
+        _save_solution(output, "far_" + result.waveform.method, result)
+    for row in rows:
+        row["far_field_angle_rcrb_deg"] = references[row["architecture"]]
+    far_field_reference = {
+        "fully_digital_angle_rcrb_deg": references["fully-digital-sdr"],
+        "hybrid_angle_rcrb_deg": references["hybrid-two-stage-sdr"],
+    }
     _save_rows(output / "figure4_rcrb_vs_distance.csv", rows)
     _plot_figure4(rows, output / "figure4_rcrb_vs_distance.png")
-    far_field_reference = {
-        "distance_m": max(float(value) for value in distances),
-        "fully_digital_angle_rcrb_deg": float(
-            _architecture_rows(rows, "fully-digital-sdr", "distance_m")[-1][
-                "far_field_angle_rcrb_deg"
-            ]
-        ),
-        "hybrid_angle_rcrb_deg": float(
-            _architecture_rows(rows, "hybrid-two-stage-sdr", "distance_m")[-1][
-                "far_field_angle_rcrb_deg"
-            ]
-        ),
-    }
     summary = {
         "experiment": "figure4",
         "seed": config.seed,
@@ -1090,8 +696,10 @@ def reproduce_figure4(
         "pathloss_in_sweep": False,
         "far_field_reference": far_field_reference,
         "far_field_reference_convention": (
-            "Far-field steering with the covariance optimized at the largest "
-            "swept near-field distance"
+            "Independent angle-only SDR with far-field target steering; fixed near-field "
+            "communication channels, gain, and receive combiner. Hybrid target RF column "
+            "uses far-field steering; user RF columns remain near-field. This is an "
+            "explicit reconstruction convention, independent of sweep endpoints."
         ),
         "distances_m": [float(value) for value in distances],
         "rows": rows,

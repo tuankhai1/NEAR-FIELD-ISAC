@@ -107,6 +107,20 @@ def target_response_matrices(
     return target, target_range_derivative, target_angle_derivative
 
 
+def sensing_response_matrices(
+    config: SimulationConfig, distance: float, angle: float, model: str = "near"
+) -> tuple[ComplexArray, list[ComplexArray]]:
+    """Round-trip response and derivatives of the identifiable parameters."""
+    if model == "near":
+        target, dr, dt = target_response_matrices(config, distance, angle)
+        return target, [dr, dt]
+    if model != "far":
+        raise ValueError("sensing model must be 'near' or 'far'")
+    a = far_field_response(config, angle)
+    da = -1j * 2 * np.pi / config.wavelength * antenna_positions(config) * np.sin(angle) * a
+    return np.outer(a, a), [np.outer(da, a) + np.outer(a, da)]
+
+
 def generate_scenario(
     config: SimulationConfig,
     rng: np.random.Generator | None = None,

@@ -178,6 +178,16 @@ def music_spectrum_xy(
     )
     flat_x = x_grid.ravel()
     flat_y = y_grid.ravel()
+    if receive_combiner is not None:
+        # Echo simulation combines physical antenna noise. Whiten both data
+        # and steering; ordinary MUSIC requires a white noise covariance.
+        gram = receive_combiner @ receive_combiner.conj().T
+        values, vectors = np.linalg.eigh(gram)
+        if np.min(values) <= np.max(values) * 1e-12:
+            raise ValueError("Receive combiner has dependent rows")
+        whitening = (vectors / np.sqrt(values)[None, :]) @ vectors.conj().T
+        covariance = whitening @ covariance @ whitening.conj().T
+        receive_combiner = whitening @ receive_combiner
     signal_vectors = signal_subspace(covariance, n_targets=n_targets)
     denominator = np.empty(flat_x.size, dtype=float)
     for start in range(0, flat_x.size, batch_size):

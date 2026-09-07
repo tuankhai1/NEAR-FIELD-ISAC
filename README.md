@@ -1,267 +1,229 @@
-# Near-Field ISAC — Python Reproduction
+# Near-Field ISAC - Python reproduction
 
-Python baseline for reproducing the main numerical results of:
+Reproduction of Z. Wang, X. Mu, and Y. Liu, **Near-Field Integrated Sensing and Communications**, IEEE Communications Letters, 2023. [Paper](https://arxiv.org/abs/2302.01153) · [Author MATLAB example](https://github.com/zhaolin820/near-field-integrated-sensing-and-communications).
 
-> Z. Wang, X. Mu, and Y. Liu, “Near-Field Integrated Sensing and Communications,” *IEEE Communications Letters*, vol. 27, no. 8, pp. 2048–2052, Aug. 2023. [DOI](https://doi.org/10.1109/LCOMM.2023.3280132) · [arXiv](https://arxiv.org/abs/2302.01153) · [MATLAB code](https://github.com/zhaolin820/near-field-integrated-sensing-and-communications)
+The code implements exact spherical-wave channels, joint range/angle CRBs, fully digital SDR, two-stage hybrid beamforming, and MUSIC. The numerical revision adds exact transmit-subspace reduction, balanced inverse-FIM optimization, physical acceptance checks, rank-safe RF recovery, an independent far-field reference, and reproducible per-point artifacts.
 
-The repository implements the spherical-wave channel, range/angle CRB, 2D MUSIC, fully digital SDR, the paper's two-stage hybrid design, and a fast ZF sensing baseline. A detailed Vietnamese analysis is available in [docs/paper_analysis_vi.md](docs/paper_analysis_vi.md).
+## Install and run
 
-## Reproduced results
+On this computer, open a PowerShell terminal and run:
 
-| Result | Description | Output |
-|---|---|---|
-| Fig. 2 | Range/angle RCRB versus minimum communication rate | `results/figure2/` |
-| Fig. 3 | Near-field MUSIC peak versus far-field range ambiguity | `results/figure3/` |
-| Fig. 4 | Range/angle RCRB versus target distance | `results/figure4/` |
-
-The generated plots follow the paper's serif typography, clean grid-free axes,
-colors, open markers, line styles, legends, 3D camera angles, and near-/far-field
-references.
-
-## Installation
-
-Python 3.10 or newer is required.
-
-```bash
-git clone https://github.com/tuankhai1/NEAR-FIELD-ISAC.git
-cd NEAR-FIELD-ISAC
-python -m pip install -e ".[optimization]"
+```powershell
+Set-Location "D:\NTK\PROJECTS\NEAR-FIELD ISAC"
+python main.py all --preset paper --solver auto --solver-threads 2
+python scripts/validate_results.py
 ```
 
-The project does not require a virtual environment. For development tools:
+The first command generates Figures 2–4; the second independently checks the saved
+waveforms and generates the comparison report. Open
+[`results/validation/report.md`](results/validation/report.md) after validation.
+The installed environment on this computer already has the required packages and licensed MOSEK.
+
+For a fresh environment, use Python 3.10 or later and install the package first:
 
 ```bash
 python -m pip install -e ".[optimization,dev]"
-```
-
-The optimization extra installs CVXPY and its standard open-source solver
-dependencies. MOSEK is optional and must be installed separately with a valid
-MOSEK license. If MOSEK is unavailable, `--solver auto` falls back to another
-installed SDP-capable solver.
-
-With `--solver auto`, the pipeline prefers MOSEK for the paper-size fully
-digital SDP and CLARABEL for the compact hybrid SDP, with the other installed
-solvers available as fallbacks. This architecture-specific policy avoids known
-numerical failures in the high-rate hybrid sweep.
-
-## Usage
-
-Run the complete Fig. 2–4 reproduction with the highest paper preset:
-
-```bash
 python main.py
 ```
 
-This is equivalent to:
+The default runs the full paper preset and saves to **`results/`**. The main figure folders are `results/figure2/`, `results/figure3/`, and `results/figure4/`. Rerunning replaces their generated files; use `--output` to keep a separate run.
 
 ```bash
-python main.py all --preset paper
+# Full 65-antenna pipeline, 16 rate points, 8 distances, 500x500 MUSIC grid
+python main.py all --preset paper --solver auto --solver-threads 2
+
+# Independently validate saved waveforms and compare against digitized paper values
+python scripts/validate_results.py
+
+# Compare selected results across solver tolerances and MOSEK/CLARABEL
+python scripts/check_solver_convergence.py
+
+# Reduced sampling, preserving all physical paper dimensions
+python main.py all --preset quick --output results/quick
+
+# Tiny installation/integration check
+python main.py all --preset smoke --output results/smoke
+
+# Individual figures; standalone Figure 3 now defaults to SDR
+python main.py figure2 --preset paper
+python main.py figure3 --preset paper --optimizer sdr
+python main.py figure4 --preset paper
 ```
 
-After the editable installation, the console command is equivalent:
+MOSEK requires a separate installation and license. Auto mode prefers MOSEK, then CLARABEL, then SCS. A solver result must pass physical checks before it is saved as a successful point. Inaccurate or rejected attempts remain visible in the JSON diagnostics. MOSEK is strongly preferred for resolving the small angle contribution to the mixed-unit objective. A fallback solver is not guaranteed to produce identical component CRBs.
 
-```bash
-nf-isac all --preset paper
-```
+The physical model remains N=65 antennas, K=4 users, five RF chains, 128 snapshots, 28 GHz, 0.5 m aperture, 20 dBm transmit power, -60 dBm noise, and target (20 m, 45 degrees). The default seed remains 2023. No reflection-gain fitting or seed search is used to match the printed figures.
 
-Run an accurate reduced-workload reproduction. This keeps the paper's 65
-antennas, 4 users, and 5 RF chains, but uses fewer curve/grid samples and reuses
-the nominal optimization across Figures 2--4:
+## Output
 
-```bash
-python main.py all --preset quick --solver auto --workers 1 --solver-threads 4
-```
-
-Run a short end-to-end installation check with the intentionally tiny model:
-
-```bash
-python main.py all --preset smoke --solver CLARABEL --workers 1
-```
-
-Run one experiment:
-
-```bash
-# Fig. 2: sensing/communication tradeoff
-python main.py figure2 --preset paper --solver MOSEK
-
-# Fig. 3: paper SDR and MUSIC spectrum
-python main.py figure3 --preset paper --optimizer sdr --solver MOSEK --grid-size 500
-
-# Fig. 3: fast baseline without a convex solver
-python main.py figure3 --preset paper --optimizer zf --grid-size 500
-
-# Fig. 4: CRB versus target distance
-python main.py figure4 --preset paper --solver MOSEK
-```
-
-Useful options:
-
-| Option | Purpose |
-|---|---|
-| `--preset smoke|quick|paper` | Tiny validation model, reduced sampling, or full published sampling |
-| `--solver auto|MOSEK|CLARABEL|SCS` | SDP solver |
-| `--optimizer zf|sdr|hybrid` | Fig. 3 waveform method |
-| `--rates ...` / `--distances ...` | Custom Fig. 2/4 sweep points |
-| `--grid-size N` | MUSIC points per Cartesian axis |
-| `--workers N` | Parallel Fig. 2/4 sweep processes |
-| `--solver-threads N` | Threads used inside the solver; defaults to 4 to limit peak memory |
-| `--seed N` / `--output PATH` | Random seed and output root |
-| `--verbose` | Detailed solver output |
-
-Use `python main.py <command> --help` for the complete option list.
-
-## Runtime and hardware
-
-Times are approximate and depend strongly on the solver, CPU, RAM, and scenario realization.
-
-| Run | Expected time | Practical minimum |
-|---|---:|---|
-| Full `smoke` pipeline | 15–30 s | 4 cores, 8 GB RAM |
-| Full `quick` pipeline | MOSEK: 15–50 min | 8 cores, 16 GB RAM; 32 GB recommended |
-| Full `paper` pipeline | MOSEK: 25–90 min; CLARABEL: 1.5–6 h | 8 cores, 16 GB RAM; 32 GB recommended |
-| Fig. 2 `paper` | MOSEK: 15–50 min; CLARABEL: 1–4 h | 8 cores, 16 GB RAM |
-| Fig. 3 `paper`, ZF | 2–10 s | 2 cores, 4 GB RAM |
-| Fig. 3 `paper`, SDR/hybrid | MOSEK: 1–5 min; CLARABEL: 2–30 min | 8 cores, 12–16 GB RAM |
-| Fig. 4 `paper` | MOSEK: 10–40 min; CLARABEL: 45 min–3 h | 8 cores, 16 GB RAM |
-
-Paper-size fully digital SDP can use most available RAM. Start with `--workers 1`
-and `--solver-threads 4`; each additional worker launches another solver process
-and can multiply memory usage. If MOSEK reports `MSK_RES_ERR_SPACE`, close
-memory-heavy applications or retry with `--solver-threads 1`. With one worker,
-paper-size sweep points run in disposable processes so native solver memory is
-released between points.
-
-## Output files
-
-Each experiment saves a plot and machine-readable data:
+Each experiment writes a 300-dpi PNG, an SVG, CSV/JSON results, a complete scenario NPZ, provenance JSON, and the optimized waveforms with solver diagnostics. Figure 3 rasterizes only its full-resolution surface in the SVG. Figure 4 additionally saves both independently optimized far-field waveforms.
 
 ```text
 results/
-├── all_summary.json
-├── figure2/
-│   ├── figure2_rcrb_vs_rate.png
-│   ├── figure2_rcrb_vs_rate.csv
-│   └── figure2_summary.json
-├── figure3/
-│   ├── figure3_music_spectrum.png
-│   ├── figure3_music_data.npz
-│   └── figure3_summary.json
-└── figure4/
-    ├── figure4_rcrb_vs_distance.png
-    ├── figure4_rcrb_vs_distance.csv
-    └── figure4_summary.json
+  all_summary.json
+  figure2/
+    figure2_rcrb_vs_rate.png / .svg / .csv
+    figure2_summary.json
+    provenance.json / scenario.npz
+    point_000.npz / point_000.json / ...
+  figure3/
+    figure3_music_spectrum.png / .svg
+    figure3_music_data.npz / figure3_summary.json
+    provenance.json / scenario.npz / nominal.npz / nominal.json
+  figure4/
+    figure4_rcrb_vs_distance.png / .svg / .csv
+    figure4_summary.json
+    provenance.json / scenario.npz
+    point_000.npz / point_000.json / ...
+    far_fully-digital-sdr.npz / .json
+    far_hybrid-two-stage-sdr.npz / .json
+  validation/
+    summary.json / physical_checks.csv / paper_comparison.csv
+    comparison_to_paper.png / normalized_comparison.png
+    report.md / solver_convergence.json
 ```
 
-Generated results are ignored by Git. Running an experiment again with the same
-output root overwrites files with the same names. Use `--output PATH` to preserve
-separate runs, seeds, or solver configurations.
+Every solution records achieved rates, power margin, covariance eigenvalues, inverse-FIM epigraph discrepancy, solver status and attempts, tolerance, and physical CRB trace. Each experiment records the full configuration, exact channel/reflection/combiner realization, package versions, and source hashes. Specify `--output` to preserve another run; files in a selected output directory are replaced on rerun.
 
-## Validating a run
+For a separate full run and its validation:
 
-The CSV and JSON summaries record the solver name/status, requested sweep point,
-minimum achieved communication rate, and both RCRBs. Check that:
-
-- every RCRB is finite and non-negative;
-- `minimum_achieved_rate` meets the requested rate within the solver tolerance;
-- `optimal` is preferred, while `optimal_inaccurate` should be rerun with a tighter
-  tolerance or a different solver when the rate margin is small.
-
-The test suite additionally checks the transmit-power constraint, positive
-semidefiniteness of the residual sensing covariance, channel derivatives, and the
-main MUSIC/optimization invariants.
-
-## Figure interpretation
-
-RCRB is the square root of a diagonal CRB entry and represents a lower bound on estimation standard deviation. Lower is better.
-
-### Figure 2 — sensing/communication tradeoff
-
-Increasing the minimum user rate consumes waveform power and spatial degrees of freedom, so sensing accuracy generally degrades. The FD/HB gap shows the performance cost of hybrid hardware constraints.
-
-### Figure 3 — near-field range information
-
-The near-field spherical wavefront depends on both range and angle, producing a localized MUSIC peak near the target `(20 m, 45°)`. The far-field response depends only on angle and therefore forms a range-ambiguous ridge.
-
-### Figure 4 — transition toward the far field
-
-As target distance increases, the wavefront becomes more planar and range-dependent phase curvature disappears. Range RCRB therefore grows, while angle RCRB approaches its far-field reference. Target pathloss is held fixed to isolate this geometry effect.
-
-The lower panel uses separate vertical axes: the left axis is for FD and the right
-axis is for HB. Consequently, the vertical placement of a green HB curve cannot be
-compared directly with a red FD curve; compare their numerical values or their own
-axis labels instead.
-
-The horizontal far-field references are evaluated using the covariance optimized
-at the largest swept near-field distance. They are not obtained by solving a
-separate far-field waveform-optimization problem. This explicit reconstruction
-convention is also recorded in `figure4_summary.json`.
-
-## Code structure
-
-```text
-.
-├── main.py                       # command-line entry point
-├── src/near_field_isac/
-│   ├── channels.py              # near-/far-field channel models
-│   ├── communication.py         # rates and ZF baseline
-│   ├── config.py                # smoke/quick/paper configurations
-│   ├── fim.py                   # FIM and CRB
-│   ├── music.py                 # echo simulation and MUSIC
-│   ├── optimization.py          # fully digital and hybrid SDR
-│   ├── experiments.py           # Fig. 2–4 pipelines and plots
-│   └── cli.py                   # command-line options
-├── docs/                         # paper analysis
-├── tests/                        # numerical and integration tests
-└── results/                      # generated artifacts
+```bash
+python main.py all --preset paper --solver-threads 2 --output results/my-run
+python scripts/validate_results.py --results results/my-run
+python scripts/check_solver_convergence.py --results results/my-run
 ```
 
-## Reproducibility notes
+The comparison validator expects all three figures from the same source revision.
+Run the full pipeline again after source changes; do not combine individual outputs from
+different runs. Quick/smoke presets are useful for checks, but the gallery below uses the
+full paper preset. The optional convergence script specifically compares MOSEK and CLARABEL.
 
-- The paper and public MATLAB code do not publish an RNG seed. Both the four
-  user locations and the complex target reflection are random, so their exact
-  realization materially changes the RCRB curves. This baseline uses
-  `seed=2023` and records it in each JSON summary.
-- Figures 2 and 4 use one fixed seeded scenario and one fixed hybrid receive
-  combiner over each sweep; the curves are not Monte Carlo averages. NumPy and
-  MATLAB do not generate the same realization from the same numeric seed.
-- RCRB scales inversely with the magnitude of the random complex target
-  reflection. Absolute curve levels can therefore differ substantially between
-  otherwise identical scenario realizations.
-- The authors' public code implements fully digital Fig. 3. Fig. 2, Fig. 4, and the hybrid sweeps are reconstructed from the paper equations.
-- The authors corrected the round-trip response derivatives in their public
-  [`FIM.m`](https://github.com/zhaolin820/near-field-integrated-sensing-and-communications/commit/77929f8dd91ff7bd0ca4f2d915f542f1825ff24d)
-  after publication and later corrected the construction of
-  [`J_12`](https://github.com/zhaolin820/near-field-integrated-sensing-and-communications/commit/916d2c348b0eb3dcb86dce3d11d1c023591a38bc).
-  This repository follows the corrected derivative of `a a^T` and the corrected
-  real-valued FIM coupling. The original Fig. 2/4 scripts and RNG realization are
-  unavailable, so numerical agreement with the published curves is not expected
-  to be exact. There is currently no legacy-FIM compatibility mode.
-- Exact pixel-level agreement is not guaranteed; compare CSV/JSON values, solver
-  status, achieved rates, and fixed seeds rather than only the rendered images.
+## Produced figures and comments
+
+These are saved results from the validated **7 September 2026** run: paper preset,
+seed 2023, MOSEK, tolerance 1e-11, 65 antennas, 16 rate points, 8 distances and a
+500 × 500 MUSIC grid. Images in `docs/results/2026-09-07/` are a fixed documentation
+snapshot; rerunning the pipeline updates `results/`, not this gallery.
+
+### Figure 2 — sensing versus communication rate
+
+![Produced Figure 2: range and angle RCRB versus minimum communication rate](docs/results/2026-09-07/figure2_rcrb_vs_rate.png)
+
+Fully digital beamforming achieves lower range and angle RCRBs than the hybrid design
+in this realization. The high-rate increase is much weaker than in the paper.
+At 5 bit/s/Hz, the quantitative comparison is:
+
+| Design | Quantity | Produced | Digitized paper | Produced / paper |
+|---|---|---:|---:|---:|
+| Fully digital | Range RCRB (m) | 0.035866956 | 0.0052345414 | 6.852 |
+| Fully digital | Angle RCRB (deg) | 0.0002403039 | 0.00003475439 | 6.914 |
+| Hybrid | Range RCRB (m) | 0.1774955 | 0.01729069 | 10.265 |
+| Hybrid | Angle RCRB (deg) | 0.0009962601 | 0.0002063814 | 4.827 |
+
+The zero-rate fully digital angle is still sensitive across solvers because its
+contribution to the mixed-unit objective is very small. Individual angle CRBs are
+not guaranteed to increase monotonically with the rate constraint.
+
+### Figure 3 — MUSIC localization
+
+![Produced Figure 3: near-field and far-field MUSIC spectra](docs/results/2026-09-07/figure3_music_spectrum.png)
+
+Near-field MUSIC estimates **19.952031 m at 45°**, matching the paper's rounded
+**19.952 m at 45°** estimate. The far-field spectrum cannot distinguish range along
+the target direction. This agreement checks the reported peak location; it does
+not establish identical spectrum values at every grid point.
+
+### Figure 4 — sensing versus target distance
+
+![Produced Figure 4: range and angle RCRB versus target distance](docs/results/2026-09-07/figure4_rcrb_vs_distance.png)
+
+Range RCRB increases with target distance, and the fully digital range curve has a
+similar trend to the paper but remains about 6.9 times larger. Hybrid angle RCRB
+falls initially and then rises slightly, unlike the paper's decreasing curve.
+Read the separate FD and HB angle axes carefully. The horizontal far-field lines
+come from separately optimized angle-only designs under the documented
+[reference convention](docs/numerical_method.md); they are not universal bounds
+across different sensing models and hybrid transmit subspaces.
+
+### Cross-validation and remaining disagreement
+
+![Absolute comparison of produced curves and digitized paper curves](docs/results/2026-09-07/comparison_to_paper.png)
+
+All **48 curve points** passed independent rate, power, covariance and CRB checks.
+The largest finite-difference CRB discrepancy was **0.000257928%**. The smallest
+rate margin was −8.76e-6 bit/s/Hz, within the explicit −1e-5 acceptance tolerance.
+The test suite passed all 27 tests. See the saved
+[validation summary](docs/results/2026-09-07/summary.json) and
+[cross-solver results](docs/results/2026-09-07/solver_convergence.json).
+
+**Figures 2 and 4 are not exact numerical reproductions.** The original sweep
+implementation and exact random realization are unavailable in the supplied
+materials. The cause of the remaining differences is unresolved; these checks do
+not justify attributing it to randomness alone. No fitted scaling or smoothing is
+applied. Physical consistency and agreement with the historical paper plots are
+separate validation questions.
+
+## Code layout
+
+| Location | Responsibility |
+|---|---|
+| `main.py`, `src/near_field_isac/cli.py` | Entry point, presets and command-line options |
+| `config.py`, `channels.py`, `communication.py` | Physical model, scenarios and communication waveforms |
+| `fim.py`, `optimization.py` | CRBs, SDR and physical acceptance checks |
+| `music.py` | Echo simulation and localization |
+| `experiments.py` | Sweeps, saved artifacts and provenance |
+| `plotting.py` | Shared figure styling and rendering |
+| `scripts/` | Validation, reference extraction and individual-figure wrappers |
+| `tests/` | Numerical and integration regression checks |
+| `docs/` | Numerical conventions, paper notes, references and gallery snapshots |
+
+Module filenames in this table are under `src/near_field_isac/` unless otherwise stated.
+Generated experiment data remain in the Git-ignored `results/` directory; the small
+documentation gallery is kept separately so README images work in a fresh checkout.
+
+## Numerical method
+
+The fully digital covariance is optimized in the exact span of the conjugated user channels and target response/derivative row spaces. This reduces the default SDP to seven transmit dimensions without changing the objective or feasible optimum. A rank-revealing SVD also handles repeated hybrid RF columns. These changes remove the need for the earlier memory-heavy N-by-N solver workload and disposable solver processes in normal runs.
+
+The objective remains the paper's trace of range variance in m² plus angle variance in rad². It is not reweighted into degrees or equal normalized errors. Removing derivative components in the complex-gain nuisance span and balancing the inverse-information LMI improve numerical conditioning. The default conic tolerance is 1e-11. Unidentifiable or indefinite CRBs raise an error rather than being reported as zero.
+
+The hybrid CRB retains the paper's approximation that combined noise has covariance N sigma² I. Optional hybrid MUSIC simulates physical combined noise and whitens both data and steering. Figure 3 in the main pipeline uses a fully digital receiver.
+
+See [docs/numerical_method.md](docs/numerical_method.md) for the exact transformations, validation thresholds, and reconstruction assumptions.
+
+## Comparing with the paper
+
+The supplied paper's vector paths were calibrated against its axis ticks and exported to `docs/paper_reference/`. They provide a quantitative graph comparison, not the authors' original simulation arrays. The extraction script requires optional `pdfplumber`:
+
+```bash
+python scripts/extract_paper_reference.py "path/to/Near-Field ISAC.pdf"
+```
+
+The reference is tied to the supplied arXiv v5 PDF and records its SHA-256. Figure 2 uses its recovered rate grid: 0 through 9, then 9.6, 10, 10.3, 10.5, 10.6, and 10.7. Figure 3 uses the author's 500-point linspace grid and reproduces the stated estimate of 19.952 m at 45 degrees.
+
+Figure 4's target gain is fixed at its nominal realization to remove range-dependent pathloss. Its horizontal references now come from separate angle-only optimization with planar target steering, fixed near-field communication channels, and the same receive combiner. The hybrid target RF column is planar; user columns remain spherical. This is a documented reconstruction convention, not a claim that the original unpublished Figure 4 code used exactly that convention.
+
+Substantial amplitude and shape differences from the historical plots can remain. Random user locations, complex reflection, hybrid combiner, missing original sweep scripts, and the author's corrected FIM implementation limit exact reproduction. The default FD zero-rate angle is also more sensitive across solvers than the total objective. The validation outputs expose these differences. No smoothing, fitted amplitude multiplier, or forced monotonic angle curve is applied.
 
 ## Tests
 
 ```bash
-pytest -q
-ruff check src tests scripts
+python -m pytest -q
+python -m ruff check src tests scripts
 ```
+
+Regression checks cover singular CRBs, extreme information scaling, an independent vectorized echo Jacobian, exact transmit-subspace invariance, full/reduced SDP agreement, rank-deficient hybrid RF reconstruction, colored-noise MUSIC, and endpoint-independent far-field references, in addition to the original tests.
 
 ## Citation
 
 ```bibtex
 @article{wang2023nearfieldisac,
-  author  = {Zhaolin Wang and Xidong Mu and Yuanwei Liu},
-  title   = {Near-Field Integrated Sensing and Communications},
+  author = {Zhaolin Wang and Xidong Mu and Yuanwei Liu},
+  title = {Near-Field Integrated Sensing and Communications},
   journal = {IEEE Communications Letters},
-  volume  = {27},
-  number  = {8},
-  pages   = {2048--2052},
-  month   = aug,
-  year    = {2023},
-  doi     = {10.1109/LCOMM.2023.3280132}
+  volume = {27}, number = {8}, pages = {2048--2052}, year = {2023},
+  doi = {10.1109/LCOMM.2023.3280132}
 }
 ```
 
-## License
-
-This Python baseline is released under the [MIT License](LICENSE). The paper and authors' MATLAB repository remain subject to their respective licenses.
+This project retains its MIT license. The paper and author repository have their own licenses.

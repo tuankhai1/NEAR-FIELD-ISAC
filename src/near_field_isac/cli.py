@@ -12,7 +12,7 @@ from .experiments import reproduce_figure2, reproduce_figure3, reproduce_figure4
 
 SMOKE_RATES = [0.0, 2.0, 4.0]
 QUICK_RATES = [0.0, 5.0, 8.0, 9.0, 10.0]
-PAPER_RATES = [float(value) for value in range(11)]
+PAPER_RATES = [float(value) for value in range(10)] + [9.6, 10.0, 10.3, 10.5, 10.6, 10.7]
 SMOKE_DISTANCES = [5.0, 20.0, 40.0]
 QUICK_DISTANCES = [5.0, 10.0, 20.0, 30.0, 40.0]
 PAPER_DISTANCES = [float(value) for value in range(5, 41, 5)]
@@ -52,9 +52,9 @@ def _add_common_arguments(
     parser.add_argument(
         "--solver",
         default="auto",
-        help="auto selects by architecture; or force MOSEK, CLARABEL, or SCS",
+        help="auto tries MOSEK, CLARABEL, then SCS; or force a named solver",
     )
-    parser.add_argument("--tolerance", type=float, default=1.0e-7)
+    parser.add_argument("--tolerance", type=float, default=1.0e-11)
     parser.add_argument("--max-iterations", type=int, default=20_000)
     parser.add_argument(
         "--solver-threads",
@@ -72,9 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="experiment", required=True)
 
-    all_experiments = subparsers.add_parser(
-        "all", help="run Figures 2--4 as one complete pipeline"
-    )
+    all_experiments = subparsers.add_parser("all", help="run Figures 2--4 as one complete pipeline")
     _add_common_arguments(all_experiments, default_preset="paper")
     all_experiments.add_argument(
         "--grid-size",
@@ -93,7 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     figure3 = subparsers.add_parser("figure3", help="near-/far-field MUSIC spectrum")
     _add_common_arguments(figure3)
-    figure3.add_argument("--optimizer", choices=("zf", "sdr", "hybrid"), default="zf")
+    figure3.add_argument("--optimizer", choices=("zf", "sdr", "hybrid"), default="sdr")
     figure3.add_argument(
         "--grid-size",
         type=int,
@@ -173,9 +171,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             output_dir=args.output / "figure3",
             optimizer="sdr",
             grid_size=grid_size,
-            precomputed_result=(
-                nominal_results[0] if nominal_results is not None else None
-            ),
+            precomputed_result=(nominal_results[0] if nominal_results is not None else None),
             **shared,
         )
         print("[3/3] Reproducing Figure 4: RCRB versus target distance...")
@@ -202,9 +198,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         }
         args.output.mkdir(parents=True, exist_ok=True)
         summary_path = args.output / "all_summary.json"
-        summary_path.write_text(
-            json.dumps(details, indent=2, sort_keys=True), encoding="utf-8"
-        )
+        summary_path.write_text(json.dumps(details, indent=2, sort_keys=True), encoding="utf-8")
         summary = {
             "experiment": "all",
             "preset": args.preset,

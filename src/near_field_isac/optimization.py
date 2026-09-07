@@ -1,4 +1,4 @@
-"""CVXPY implementation of the paper's SDR and hybrid two-stage design."""
+"""Conditioned SDR with exact dimension reduction and physical validation."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-from .channels import Scenario, near_field_response, target_response_matrices
+from .channels import Scenario, far_field_response, near_field_response, sensing_response_matrices
 from .communication import Waveform, communication_rates
 from .config import SimulationConfig
 from .fim import crb_from_blocks, fisher_information_blocks
@@ -19,7 +19,7 @@ FloatArray = NDArray[np.float64]
 
 @dataclass(frozen=True)
 class OptimizationResult:
-    """Waveform plus solver diagnostics."""
+    """Waveform plus independently recomputed solver diagnostics."""
 
     waveform: Waveform
     status: str
@@ -33,48 +33,32 @@ def _import_cvxpy() -> Any:
     try:
         import cvxpy as cp
     except ImportError as error:
-        raise RuntimeError(
-            "CVXPY is required for SDR optimization. Install it with "
-            "`python -m pip install -e \".[optimization]\"`."
-        ) from error
+        raise RuntimeError('Install dependencies: pip install -e ".[optimization]"') from error
     return cp
 
 
-def _solver_candidates(
-    cp: Any, requested: str, *, prefer_clarabel: bool = False
-) -> list[str]:
+def _solver_candidates(cp: Any, requested: str, *, prefer_clarabel: bool = False) -> list[str]:
     installed = set(cp.installed_solvers())
     if requested.lower() != "auto":
-        solver = requested.upper()
-        if solver not in installed:
-            raise RuntimeError(
-                f"Requested solver {solver!r} is not installed. Available: {sorted(installed)}"
-            )
-        return [solver]
-    order = (
-        ("CLARABEL", "MOSEK", "SCS")
-        if prefer_clarabel
-        else ("MOSEK", "CLARABEL", "SCS")
-    )
-    candidates = [candidate for candidate in order if candidate in installed]
-    if candidates:
-        return candidates
-    raise RuntimeError(
-        "No SDP-capable solver was found. Install CVXPY with SCS or configure MOSEK."
-    )
+        if requested.upper() not in installed:
+            raise RuntimeError(f"Solver {requested} is unavailable: {sorted(installed)}")
+        return [requested.upper()]
+    order = ("CLARABEL", "MOSEK", "SCS") if prefer_clarabel else ("MOSEK", "CLARABEL", "SCS")
+    candidates = [name for name in order if name in installed]
+    if not candidates:
+        raise RuntimeError("No SDP-capable solver is installed")
+    return candidates
 
 
 def _solve_options(
-    solver: str,
-    tolerance: float,
-    max_iterations: int,
-    solver_threads: int | None,
+    solver: str, tolerance: float, max_iterations: int, solver_threads: int | None
 ) -> dict[str, Any]:
     if solver == "SCS":
         return {"eps": tolerance, "max_iters": max_iterations}
     if solver == "CLARABEL":
-        options = {
+        options: dict[str, Any] = {
             "tol_gap_abs": tolerance,
+            "tol_gap_rel": tolerance,
             "tol_feas": tolerance,
             "max_iter": max_iterations,
         }
@@ -82,113 +66,63 @@ def _solve_options(
             options["max_threads"] = solver_threads
         return options
     if solver == "MOSEK":
-        mosek_params = {
+        params: dict[str, Any] = {
             "MSK_IPAR_INTPNT_MAX_ITERATIONS": max_iterations,
+            "MSK_DPAR_INTPNT_CO_TOL_PFEAS": tolerance,
+            "MSK_DPAR_INTPNT_CO_TOL_DFEAS": tolerance,
+            "MSK_DPAR_INTPNT_CO_TOL_REL_GAP": tolerance,
         }
         if solver_threads is not None:
-            mosek_params["MSK_IPAR_NUM_THREADS"] = solver_threads
-        return {"eps": tolerance, "mosek_params": mosek_params}
+            params["MSK_IPAR_NUM_THREADS"] = solver_threads
+        return {"mosek_params": params}
     return {}
-
-
-def _fim_expressions(
-    cp: Any,
-    config: SimulationConfig,
-    covariance: Any,
-    target_gain: complex,
-    distance: float,
-    angle: float,
-    receive_combiner: ComplexArray | None,
-) -> tuple[Any, Any, Any]:
-    target, derivative_range, derivative_angle = target_response_matrices(
-        config, distance, angle
-    )
-    if receive_combiner is not None:
-        target = receive_combiner @ target
-        derivative_range = receive_combiner @ derivative_range
-        derivative_angle = receive_combiner @ derivative_angle
-
-    def trace_form(left: ComplexArray, right: ComplexArray) -> Any:
-        return cp.trace(left @ covariance @ right.conj().T)
-
-    scale = config.optimization_scale
-    range_range = cp.real(trace_form(derivative_range, derivative_range))
-    range_angle = cp.real(trace_form(derivative_range, derivative_angle))
-    angle_angle = cp.real(trace_form(derivative_angle, derivative_angle))
-    j11 = 2.0 * scale * abs(target_gain) ** 2 * cp.bmat(
-        [[range_range, range_angle], [range_angle, angle_angle]]
-    )
-
-    range_cross = trace_form(target, derivative_range)
-    angle_cross = trace_form(target, derivative_angle)
-    j12 = 2.0 * scale * cp.bmat(
-        [
-            [
-                cp.real(np.conj(target_gain) * range_cross),
-                cp.real(np.conj(target_gain) * 1j * range_cross),
-            ],
-            [
-                cp.real(np.conj(target_gain) * angle_cross),
-                cp.real(np.conj(target_gain) * 1j * angle_cross),
-            ],
-        ]
-    )
-    beta_information = 2.0 * scale * cp.real(trace_form(target, target))
-    j22 = beta_information * np.eye(2)
-    return j11, j12, j22
 
 
 def _hermitian(matrix: ComplexArray) -> ComplexArray:
     return 0.5 * (matrix + matrix.conj().T)
 
 
-def _fim_preconditioners(
+def orthonormal_span(columns: ComplexArray) -> ComplexArray:
+    """Rank-revealing basis, safe for duplicate or differently scaled columns."""
+    norms = np.linalg.norm(columns, axis=0)
+    nonzero = norms > np.finfo(float).tiny
+    if not np.any(nonzero):
+        raise ValueError("Transmit subspace is empty")
+    u, values, _ = np.linalg.svd(columns[:, nonzero] / norms[nonzero], full_matrices=False)
+    return u[:, values > values[0] * 1e-12]
+
+
+def exact_transmit_basis(
     config: SimulationConfig,
-    target_gain: complex,
-    distance: float,
-    angle: float,
-    receive_combiner: ComplexArray | None,
-) -> tuple[FloatArray, FloatArray]:
-    """Balance the FIM blocks using an isotropic reference covariance.
-
-    The resulting congruence transform is exact; it changes only the numerical
-    coordinates seen by the cone solver, not the feasible set or objective.
-    """
-
-    reference_covariance = (
-        config.transmit_power / config.n_antennas * np.eye(config.n_antennas)
-    )
-    reference = fisher_information_blocks(
-        config,
-        reference_covariance,
-        target_gain,
-        distance=distance,
-        angle=angle,
-        receive_combiner=receive_combiner,
-        scale=config.optimization_scale,
-    )
-
-    def diagonal_scaler(matrix: FloatArray) -> FloatArray:
-        diagonal = np.maximum(np.abs(np.diag(matrix)), 1.0e-12)
-        return np.diag(1.0 / np.sqrt(diagonal))
-
-    return diagonal_scaler(reference.j11), diagonal_scaler(reference.j22)
-
-
-def _recover_rank_one(
-    channel: ComplexArray,
-    lifted_beamformer: ComplexArray,
+    scenario: Scenario,
+    model: str = "near",
     *,
-    allow_zero: bool = False,
+    include_communication: bool = True,
 ) -> ComplexArray:
-    denominator_squared = float(
-        np.real(channel.T @ lifted_beamformer @ channel.conj())
+    """Span all echo/channel transmit functionals; orthogonal power is unnecessary.
+
+    Projecting into the combined right row spaces of G, its derivatives, and
+    user channel transposes preserves every objective/constraint functional,
+    while never increasing power. This is exact, not hybrid beamforming.
+    """
+    target, derivatives = sensing_response_matrices(
+        config,
+        scenario.target_range,
+        scenario.target_angle,
+        model,
     )
-    if denominator_squared <= 0:
-        if allow_zero:
-            return np.zeros_like(channel)
-        raise RuntimeError("rank-one recovery encountered a non-positive desired power")
-    return lifted_beamformer @ channel.conj() / np.sqrt(denominator_squared)
+    columns = [scenario.communication_channels.conj()] if include_communication else []
+    for response in [target, *derivatives]:
+        _, values, vh = np.linalg.svd(response, full_matrices=False)
+        columns.append(vh[values > values[0] * 1e-10].conj().T)
+    return orthonormal_span(np.column_stack(columns))
+
+
+def _recover_rank_one(channel: ComplexArray, lifted: ComplexArray) -> ComplexArray:
+    power = float(np.real(channel.T @ lifted @ channel.conj()))
+    if power <= 0:
+        raise ValueError("Non-positive desired power during rank-one recovery")
+    return lifted @ channel.conj() / np.sqrt(power)
 
 
 def solve_sdr(
@@ -198,228 +132,237 @@ def solve_sdr(
     min_rate: float | None = None,
     solver: str = "auto",
     verbose: bool = False,
-    tolerance: float = 1.0e-7,
+    tolerance: float = 1e-11,
     max_iterations: int = 20_000,
     solver_threads: int | None = None,
     transmit_basis: ComplexArray | None = None,
     receive_combiner: ComplexArray | None = None,
     method_name: str = "fully-digital-sdr",
+    sensing_model: str = "near",
+    reduce_dimension: bool = True,
 ) -> OptimizationResult:
-    """Solve paper problem (20), optionally in a fixed hybrid RF subspace."""
+    """Unchanged radians-based trace-CRB objective, with a balanced inverse LMI.
 
+    Far-field mode optimizes angle alone, retaining the supplied communication
+    channels. No secondary objective or smoothing is applied.
+    """
     cp = _import_cvxpy()
+    rate = config.min_rate if min_rate is None else float(min_rate)
+    if not np.isfinite(rate) or rate < 0 or not 0 < tolerance < 1:
+        raise ValueError("Rate must be finite and non-negative; tolerance must lie in (0,1)")
     if solver_threads is not None and solver_threads < 1:
-        raise ValueError("solver_threads must be at least 1")
-    min_rate = config.min_rate if min_rate is None else min_rate
-    n_dimension = config.n_antennas if transmit_basis is None else transmit_basis.shape[1]
+        raise ValueError("solver_threads must be positive")
+    if abs(scenario.target_gain) == 0:
+        raise ValueError("Cannot optimize sensing with zero target gain")
     if transmit_basis is None:
-        transmit_basis = np.eye(config.n_antennas, dtype=np.complex128)
-    if transmit_basis.shape[0] != config.n_antennas:
-        raise ValueError("transmit_basis has an incompatible number of rows")
-
-    baseband_covariance = cp.Variable((n_dimension, n_dimension), hermitian=True)
-    lifted = [
-        cp.Variable((n_dimension, n_dimension), hermitian=True)
-        for _ in range(config.n_users)
-    ]
-    scaled_auxiliary = cp.Variable((2, 2), symmetric=True)
-    inverse_epigraph = cp.Variable((2, 2), symmetric=True)
-    physical_covariance = (
-        transmit_basis @ baseband_covariance @ transmit_basis.conj().T
+        basis = (
+            exact_transmit_basis(
+                config,
+                scenario,
+                sensing_model,
+                include_communication=rate > 0,
+            )
+            if reduce_dimension
+            else np.eye(
+                config.n_antennas,
+                dtype=complex,
+            )
+        )
+    else:
+        if transmit_basis.shape[0] != config.n_antennas:
+            raise ValueError("Transmit basis has incompatible shape")
+        basis = orthonormal_span(transmit_basis)
+    dimension, power = basis.shape[1], config.transmit_power
+    covariance = cp.Variable((dimension, dimension), hermitian=True)
+    lifted = (
+        [cp.Variable((dimension, dimension), hermitian=True) for _ in range(config.n_users)]
+        if rate > 0
+        else []
     )
-    j11, j12, j22 = _fim_expressions(
-        cp,
+    target, derivatives = sensing_response_matrices(
         config,
-        physical_covariance,
-        scenario.target_gain,
         scenario.target_range,
         scenario.target_angle,
-        receive_combiner,
+        sensing_model,
     )
-    parameter_scaler, nuisance_scaler = _fim_preconditioners(
-        config,
-        scenario.target_gain,
-        scenario.target_range,
-        scenario.target_angle,
-        receive_combiner,
+    if receive_combiner is not None:
+        target = receive_combiner @ target
+        derivatives = [receive_combiner @ d for d in derivatives]
+    # Remove nuisance-parallel derivative components before forming the FIM.
+    # This invertible nuisance reparameterization leaves the target Schur
+    # complement unchanged, and avoids subtracting large nearly equal terms.
+    target_energy = np.linalg.norm(target, "fro") ** 2
+    derivatives = [d - np.vdot(target, d) / target_energy * target for d in derivatives]
+    jacobians = [abs(scenario.target_gain) * d for d in derivatives] + [target, 1j * target]
+    count, fim_scale = len(derivatives), 2 * config.optimization_scale
+    reference_diagonal = np.array(
+        [fim_scale * power / config.n_antennas * np.linalg.norm(d, "fro") ** 2 for d in jacobians]
     )
-    scaled_j11 = parameter_scaler @ j11 @ parameter_scaler
-    scaled_j12 = parameter_scaler @ j12 @ nuisance_scaler
-    scaled_j22 = nuisance_scaler @ j22 @ nuisance_scaler
-    objective_weight = parameter_scaler @ parameter_scaler
-    objective_normalizer = float(np.max(np.diag(objective_weight)))
-    normalized_weight = objective_weight / objective_normalizer
-
-    constraints: list[Any] = [
-        baseband_covariance >> 0,
-        scaled_auxiliary >> 1.0e-9 * np.eye(2),
-        inverse_epigraph >> 0,
-        cp.bmat(
-            [
-                [scaled_j11 - scaled_auxiliary, scaled_j12],
-                [scaled_j12.T, scaled_j22],
-            ]
-        )
-        >> 0,
-        cp.bmat(
-            [
-                [scaled_auxiliary, np.eye(2)],
-                [np.eye(2), inverse_epigraph],
-            ]
-        )
-        >> 0,
-        cp.real(cp.trace(physical_covariance)) <= config.transmit_power,
-        baseband_covariance - sum(lifted) >> 0,
+    if np.any(reference_diagonal <= 0):
+        raise ValueError("Unidentifiable sensing parameter")
+    coordinate_scale = 1 / np.sqrt(reference_diagonal)
+    balanced_derivatives = [
+        np.sqrt(fim_scale * power) * scale * d @ basis
+        for scale, d in zip(coordinate_scale, jacobians, strict=True)
     ]
-    sinr_target = 2.0**min_rate - 1.0
-    for user, lifted_user in enumerate(lifted):
-        effective_channel = transmit_basis.T @ scenario.communication_channels[:, user]
-        signal = cp.real(cp.quad_form(np.conj(effective_channel), lifted_user))
-        total = cp.real(
-            cp.quad_form(np.conj(effective_channel), baseband_covariance)
-        )
-        constraints.extend(
+    information = cp.bmat(
+        [
             [
-                lifted_user >> 0,
-                signal >= sinr_target * (total - signal + 1.0),
+                cp.real(cp.trace((left.conj().T @ right) @ covariance))
+                for right in balanced_derivatives
             ]
-        )
-
-    problem = cp.Problem(
-        cp.Minimize(cp.trace(normalized_weight @ inverse_epigraph)), constraints
+            for left in balanced_derivatives
+        ]
     )
-    selected_solver = ""
-    objective = None
-    solver_errors: list[str] = []
-    for candidate in _solver_candidates(
-        cp, solver, prefer_clarabel=method_name.startswith("hybrid")
-    ):
+    normalizer = float(max(coordinate_scale[:count] ** 2))
+    selector = np.zeros((count + 2, count))
+    selector[:count] = np.diag(coordinate_scale[:count] / np.sqrt(normalizer))
+    epigraph = cp.Variable((count, count), symmetric=True)
+    inverse_lmi = cp.bmat([[information, selector], [selector.T, epigraph]])
+    constraints = [covariance >> 0, cp.real(cp.trace(covariance)) <= 1, inverse_lmi >> 0]
+    if lifted:
+        constraints.append(covariance - sum(lifted) >> 0)
+    sinr = np.expm1(np.log(2) * rate)
+    for user, beam in enumerate(lifted):
+        channel = basis.T @ scenario.communication_channels[:, user]
+        norm = np.linalg.norm(channel)
+        if norm == 0:
+            raise ValueError("User channel is zero in the transmit subspace")
+        normalized = channel.conj() / norm
+        signal = cp.real(cp.quad_form(normalized, beam))
+        total = cp.real(cp.quad_form(normalized, covariance))
+        constraints.extend([beam >> 0, (1 + 1 / sinr) * signal >= total + 1 / (power * norm**2)])
+    problem = cp.Problem(cp.Minimize(cp.trace(epigraph)), constraints)
+    attempts: list[dict[str, Any]] = []
+    accepted: list[OptimizationResult] = []
+    for candidate in _solver_candidates(cp, solver):
         try:
             objective = problem.solve(
                 solver=candidate,
                 verbose=verbose,
-                **_solve_options(
-                    candidate, tolerance, max_iterations, solver_threads
-                ),
+                **_solve_options(candidate, tolerance, max_iterations, solver_threads),
             )
-        except cp.error.SolverError as error:
-            solver_errors.append(f"{candidate}: {error}")
-            continue
+            if problem.status not in {cp.OPTIMAL, cp.OPTIMAL_INACCURATE}:
+                raise ValueError(f"status={problem.status}")
+            if covariance.value is None or any(b.value is None for b in lifted):
+                raise ValueError("No primal solution")
+            baseband = power * _hermitian(np.asarray(covariance.value))
+            beams = np.zeros((dimension, config.n_users), dtype=complex)
+            for user, beam in enumerate(lifted):
+                channel = basis.T @ scenario.communication_channels[:, user]
+                beams[:, user] = _recover_rank_one(channel, power * _hermitian(beam.value))
+            physical = _hermitian(basis @ baseband @ basis.conj().T)
+            physical_beams = basis @ beams
+            residual = _hermitian(physical - physical_beams @ physical_beams.conj().T)
+            rates = communication_rates(scenario.communication_channels, physical, physical_beams)
+            blocks = fisher_information_blocks(
+                config,
+                physical,
+                scenario.target_gain,
+                distance=scenario.target_range,
+                angle=scenario.target_angle,
+                receive_combiner=receive_combiner,
+                scale=config.optimization_scale,
+                model=sensing_model,
+            )
+            crb = crb_from_blocks(blocks)
+            actual_objective = float(np.trace(crb))
+            rate_margin = float(np.min(rates) - rate)
+            power_margin = float(power - np.trace(physical).real)
+            residual_eigenvalue = float(np.linalg.eigvalsh(residual).min())
+            covariance_eigenvalue = float(np.linalg.eigvalsh(physical).min())
+            epigraph_error = (
+                abs(actual_objective - float(objective) * normalizer) / actual_objective
+            )
+            lmi_eigenvalue = float(np.linalg.eigvalsh(inverse_lmi.value).min())
+            if rate_margin < -1e-5 or power_margin < -power * 1e-7:
+                raise ValueError(
+                    f"Primal infeasibility: rate={rate_margin:g}, power={power_margin:g}"
+                )
+            if min(residual_eigenvalue, covariance_eigenvalue) < -power * 1e-7:
+                raise ValueError(f"Indefinite waveform covariance: {residual_eigenvalue:g}")
+            if epigraph_error > 2e-5 or lmi_eigenvalue < -1e-7:
+                raise ValueError(f"Information residual: {epigraph_error:g}, {lmi_eigenvalue:g}")
+            noise_factor = config.n_antennas if receive_combiner is not None else 1
+            factor = (
+                config.optimization_scale
+                * config.noise_power
+                * noise_factor
+                / (config.coherent_block_length)
+            )
+            metadata = {
+                "baseband_covariance": baseband,
+                "transmit_basis": basis,
+                "receive_combiner": receive_combiner,
+                "sensing_model": sensing_model,
+                "solver_dimension": dimension,
+                "conditioned_solver_objective": float(objective),
+                "minimum_rate_margin": rate_margin,
+                "transmit_power_margin": power_margin,
+                "minimum_sensing_covariance_eigenvalue": residual_eigenvalue,
+                "minimum_covariance_eigenvalue": covariance_eigenvalue,
+                "epigraph_relative_error": float(epigraph_error),
+                "minimum_information_lmi_eigenvalue": lmi_eigenvalue,
+                "physical_crb_trace": actual_objective * factor,
+                "physical_crb": crb * factor,
+                "solver_tolerance": tolerance,
+                "validation_passed": True,
+                "solve_time_seconds": problem.solver_stats.solve_time,
+                "iterations": problem.solver_stats.num_iters,
+            }
+            accepted.append(
+                OptimizationResult(
+                    Waveform(physical, physical_beams, residual, method_name),
+                    str(problem.status),
+                    actual_objective,
+                    rates,
+                    candidate,
+                    metadata,
+                )
+            )
+            attempts.append({"solver": candidate, "status": str(problem.status), "accepted": True})
+            if problem.status == cp.OPTIMAL:
+                break
         except Exception as error:
-            is_mosek_error = (
-                candidate == "MOSEK"
-                and error.__class__.__module__.partition(".")[0] == "mosek"
-            )
-            if not is_mosek_error:
+            if not isinstance(error, (ValueError, cp.error.SolverError)) and not (
+                error.__class__.__module__.partition(".")[0] == "mosek"
+            ):
                 raise
-            if "err_space" in str(getattr(error, "errno", "")).lower():
-                raise RuntimeError(
-                    "MOSEK ran out of memory while solving the paper-size SDP. "
-                    "Close memory-heavy applications or rerun with "
-                    "`--solver-threads 1`."
-                ) from error
-            solver_errors.append(f"{candidate}: {error}")
-            continue
-        if problem.status in {cp.OPTIMAL, cp.OPTIMAL_INACCURATE}:
-            selected_solver = candidate
-            break
-        solver_errors.append(f"{candidate}: status {problem.status}")
-    if not selected_solver:
-        details = "; ".join(solver_errors)
-        raise RuntimeError(f"All candidate SDP solvers failed. {details}")
-    if problem.status not in {cp.OPTIMAL, cp.OPTIMAL_INACCURATE}:
-        raise RuntimeError(f"SDR failed with status {problem.status!r}")
-    if baseband_covariance.value is None or any(item.value is None for item in lifted):
-        raise RuntimeError("solver returned no primal solution")
-
-    baseband_value = _hermitian(np.asarray(baseband_covariance.value))
-    recovered_baseband = np.empty(
-        (n_dimension, config.n_users), dtype=np.complex128
-    )
-    for user, lifted_user in enumerate(lifted):
-        effective_channel = transmit_basis.T @ scenario.communication_channels[:, user]
-        recovered_baseband[:, user] = _recover_rank_one(
-            effective_channel,
-            _hermitian(np.asarray(lifted_user.value)),
-            allow_zero=min_rate <= 1.0e-12,
-        )
-    physical_value = _hermitian(
-        transmit_basis @ baseband_value @ transmit_basis.conj().T
-    )
-    beamformers = transmit_basis @ recovered_baseband
-    sensing_covariance = _hermitian(
-        physical_value - beamformers @ beamformers.conj().T
-    )
-    waveform = Waveform(
-        covariance=physical_value,
-        communication_beamformers=beamformers,
-        sensing_covariance=sensing_covariance,
-        method=method_name,
-    )
-    rates = communication_rates(
-        scenario.communication_channels, physical_value, beamformers
-    )
-    minimum_sensing_eigenvalue = float(np.min(np.linalg.eigvalsh(sensing_covariance)))
-    transmit_power_used = float(np.real(np.trace(physical_value)))
-    optimized_blocks = fisher_information_blocks(
-        config,
-        physical_value,
-        scenario.target_gain,
-        distance=scenario.target_range,
-        angle=scenario.target_angle,
-        receive_combiner=receive_combiner,
-        scale=config.optimization_scale,
-    )
-    unscaled_objective = float(np.trace(crb_from_blocks(optimized_blocks)))
-    return OptimizationResult(
-        waveform=waveform,
-        status=str(problem.status),
-        objective=unscaled_objective,
-        rates=rates,
-        solver=selected_solver,
-        metadata={
-            "baseband_covariance": baseband_value,
-            "transmit_basis": transmit_basis,
-            "receive_combiner": receive_combiner,
-            "conditioned_solver_objective": float(objective),
-            "minimum_rate_margin": float(np.min(rates) - min_rate),
-            "transmit_power_margin": float(config.transmit_power - transmit_power_used),
-            "minimum_sensing_covariance_eigenvalue": minimum_sensing_eigenvalue,
-        },
-    )
+            attempts.append({"solver": candidate, "accepted": False, "reason": str(error)})
+    if not accepted:
+        raise RuntimeError(f"No solver produced a validated waveform: {attempts}")
+    best = min(accepted, key=lambda result: result.objective)
+    best.metadata["solver_attempts"] = attempts
+    return best
 
 
 def solve_fully_digital_sdr(
-    config: SimulationConfig,
-    scenario: Scenario,
-    **kwargs: Any,
+    config: SimulationConfig, scenario: Scenario, **kwargs: Any
 ) -> OptimizationResult:
-    """Solve the globally optimal fully digital SDR in paper Section III-B."""
-
+    """Fully digital SDR, with exact dimension reduction by default."""
     return solve_sdr(config, scenario, method_name="fully-digital-sdr", **kwargs)
 
 
-def hybrid_analog_beamformer(config: SimulationConfig, scenario: Scenario) -> ComplexArray:
-    """Construct the unit-modulus RF beamformer from paper Eq. (22)."""
-
-    columns: list[ComplexArray] = []
-    for distance, angle in zip(scenario.user_ranges, scenario.user_angles, strict=True):
-        columns.append(np.conj(near_field_response(config, float(distance), float(angle))))
-    target_column = np.conj(
-        near_field_response(config, scenario.target_range, scenario.target_angle)
-    )
-    while len(columns) < config.n_rf_chains:
-        columns.append(target_column.copy())
-    return np.column_stack(columns[: config.n_rf_chains])
-
-
-def random_hybrid_combiner(
-    config: SimulationConfig, rng: np.random.Generator
+def hybrid_analog_beamformer(
+    config: SimulationConfig, scenario: Scenario, *, sensing_model: str = "near"
 ) -> ComplexArray:
-    """Draw the random unit-modulus receive combiner assumed below Eq. (15)."""
+    """Eq. (22), retaining near-field user focusing for the far-field target reference."""
+    columns = [
+        near_field_response(config, float(r), float(t)).conj()
+        for r, t in zip(scenario.user_ranges, scenario.user_angles, strict=True)
+    ]
+    target = (
+        far_field_response(config, scenario.target_angle).conj()
+        if sensing_model == "far"
+        else (near_field_response(config, scenario.target_range, scenario.target_angle).conj())
+    )
+    columns.extend([target] * (config.n_rf_chains - config.n_users))
+    return np.column_stack(columns)
 
-    phases = rng.uniform(0.0, 2.0 * np.pi, (config.n_rf_chains, config.n_antennas))
-    return np.exp(1j * phases)
+
+def random_hybrid_combiner(config: SimulationConfig, rng: np.random.Generator) -> ComplexArray:
+    """Paper's random unit-modulus receiver; approximate noise covariance N I."""
+    return np.exp(1j * rng.uniform(0, 2 * np.pi, (config.n_rf_chains, config.n_antennas)))
 
 
 def solve_hybrid_sdr(
@@ -430,40 +373,42 @@ def solve_hybrid_sdr(
     receive_combiner: ComplexArray | None = None,
     **kwargs: Any,
 ) -> OptimizationResult:
-    """Apply paper Section III-C: RF focusing followed by baseband SDR."""
-
+    """RF focusing and baseband SDR, including rank-deficient RF implementations."""
     rng = np.random.default_rng(config.seed + 1) if rng is None else rng
-    analog_beamformer = hybrid_analog_beamformer(config, scenario)
+    analog = hybrid_analog_beamformer(
+        config,
+        scenario,
+        sensing_model=kwargs.get("sensing_model", "near"),
+    )
     if receive_combiner is None:
         receive_combiner = random_hybrid_combiner(config, rng)
-    solver_basis, basis_transform = np.linalg.qr(analog_beamformer, mode="reduced")
     result = solve_sdr(
         config,
         scenario,
-        transmit_basis=solver_basis,
+        transmit_basis=analog,
         receive_combiner=receive_combiner,
         method_name="hybrid-two-stage-sdr",
         **kwargs,
     )
-    solver_baseband_covariance = result.metadata["baseband_covariance"]
-    analog_baseband_covariance = np.linalg.solve(
-        basis_transform,
-        np.linalg.solve(
-            basis_transform,
-            solver_baseband_covariance.conj().T,
-        ).conj().T,
+    basis = result.metadata["transmit_basis"]
+    inverse = np.linalg.pinv(analog, rcond=1e-12)
+    transform = inverse @ basis
+    baseband = _hermitian(transform @ result.metadata["baseband_covariance"] @ transform.conj().T)
+    beams = inverse @ result.waveform.communication_beamformers
+    error = float(
+        np.linalg.norm(analog @ baseband @ analog.conj().T - result.waveform.covariance)
+        / np.linalg.norm(result.waveform.covariance)
     )
-    solver_baseband_beamformers = (
-        solver_basis.conj().T @ result.waveform.communication_beamformers
+    if error > 1e-8:
+        raise RuntimeError(f"RF/baseband covariance reconstruction failed: {error:g}")
+    return replace(
+        result,
+        metadata={
+            **result.metadata,
+            "baseband_covariance": baseband,
+            "baseband_communication_beamformers": beams,
+            "solver_basis": basis,
+            "transmit_basis": analog,
+            "rf_reconstruction_relative_error": error,
+        },
     )
-    analog_baseband_beamformers = np.linalg.solve(
-        basis_transform, solver_baseband_beamformers
-    )
-    metadata = {
-        **result.metadata,
-        "baseband_covariance": _hermitian(analog_baseband_covariance),
-        "baseband_communication_beamformers": analog_baseband_beamformers,
-        "solver_basis": solver_basis,
-        "transmit_basis": analog_beamformer,
-    }
-    return replace(result, metadata=metadata)

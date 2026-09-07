@@ -18,6 +18,9 @@ def test_mosek_limits_iterations_and_threads() -> None:
     assert options["mosek_params"] == {
         "MSK_IPAR_INTPNT_MAX_ITERATIONS": 20_000,
         "MSK_IPAR_NUM_THREADS": 2,
+        "MSK_DPAR_INTPNT_CO_TOL_PFEAS": 1.0e-7,
+        "MSK_DPAR_INTPNT_CO_TOL_DFEAS": 1.0e-7,
+        "MSK_DPAR_INTPNT_CO_TOL_REL_GAP": 1.0e-7,
     }
 
 
