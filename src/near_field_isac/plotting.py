@@ -262,33 +262,34 @@ def plot_music_pair(
             ax = fig.add_subplot(1, 2, i, projection="3d")
             db = np.maximum(10 * np.log10(np.maximum(result.spectrum, 1e-30)), -60)
             # Preserve the full numerical grid, including a potentially one-pixel peak.
-            ax.plot_surface(
-                result.y_grid,
+            surface = ax.plot_surface(
                 result.x_grid,
+                result.y_grid,
                 db,
                 rstride=1,
                 cstride=1,
                 cmap="jet",
                 vmin=-50,
                 vmax=0,
-                linewidth=0,
-                antialiased=False,
+                linewidth=0.1,
+                antialiased=True,
                 shade=False,
                 rasterized=True,
             )
+            surface.set_edgecolor("face")
             ax.scatter([0], [0], [0], color="#dca526", s=15, depthshade=False)
-            ax.scatter([ty], [tx], [0], color=RED, marker="*", s=30, depthshade=False)
+            ax.scatter([tx], [ty], [0], color=RED, marker="*", s=30, depthshade=False)
             ax.text(
-                ty,
                 tx,
+                ty,
                 5,
                 f"({target_range:g} m, {np.rad2deg(target_angle):g}°)",
                 fontsize=7,
                 ha="center",
             )
             ax.set(xlim=(0, 40), ylim=(0, 40), zlim=(-60, 3))
-            ax.set_xlabel("y (m)", fontsize=9, labelpad=-1)
-            ax.set_ylabel("x (m)", fontsize=9, labelpad=-1)
+            ax.set_xlabel("x (m)", fontsize=9, labelpad=-1)
+            ax.set_ylabel("y (m)", fontsize=9, labelpad=-1)
             ax.text2D(
                 -0.11,
                 0.52,
@@ -301,7 +302,9 @@ def plot_music_pair(
             ax.set_xticks([0, 10, 20, 30, 40])
             ax.set_yticks([0, 10, 20, 30, 40])
             ax.set_zticks([-60, -40, -20, 0])
-            ax.view_init(elev=25, azim=52)
+            # Camera matches the paper; the physical x/y data remain unmodified.
+            ax.view_init(elev=25, azim=-38)
+            ax.zaxis.set_ticks_position("lower")
             ax.set_box_aspect((1, 1, 0.55))
             ax.tick_params(labelsize=7, pad=-2)
             ax.grid(False)

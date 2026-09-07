@@ -126,7 +126,9 @@ not guaranteed to increase monotonically with the rate constraint.
 
 ### Figure 3 — MUSIC localization
 
-![Produced Figure 3: near-field and far-field MUSIC spectra](docs/results/2026-09-07/figure3_music_spectrum.png)
+The Figure 3 view was rotated on 8 September 2026 to match the paper. This gallery panel comes from the rerun with that camera setting; the numerical spectrum is unchanged.
+
+![Produced Figure 3: near-field and far-field MUSIC spectra](docs/results/2026-09-08/figure3_music_spectrum.png)
 
 Near-field MUSIC estimates **19.952031 m at 45°**, matching the paper's rounded
 **19.952 m at 45°** estimate. The far-field spectrum cannot distinguish range along
@@ -144,6 +146,8 @@ Read the separate FD and HB angle axes carefully. The horizontal far-field lines
 come from separately optimized angle-only designs under the documented
 [reference convention](docs/numerical_method.md); they are not universal bounds
 across different sensing models and hybrid transmit subspaces.
+
+See [why Figure 4 differs](docs/figure4_discrepancies.md) for the measured scale offsets, hybrid shape differences and unresolved modeling assumptions.
 
 ### Cross-validation and remaining disagreement
 
