@@ -107,7 +107,9 @@ def plot_figure2(rows: list[dict], destination: Path) -> None:
         _axis(left)
         _axis(right)
         left.legend(
-            handles=handles,
+            # Matplotlib fills columns first: distance on the left, angle on
+            # the right, with FD above HB, as in the paper.
+            handles=[handles[i] for i in (0, 2, 1, 3)],
             ncols=2,
             loc="upper left",
             frameon=True,
@@ -144,9 +146,9 @@ def plot_figure4(rows: list[dict], destination: Path) -> None:
         fig, (top, left) = plt.subplots(
             2,
             1,
-            figsize=(5.3, 4.35),
+            figsize=(5.3, 4.65),
             sharex=True,
-            gridspec_kw={"height_ratios": [1, 1], "hspace": 0.48},
+            gridspec_kw={"height_ratios": [1, 1]},
         )
         right = left.twinx()
         angle_handles = []
@@ -194,7 +196,7 @@ def plot_figure4(rows: list[dict], destination: Path) -> None:
                 axis.axhline(
                     reference,
                     color=color,
-                    linestyle="-." if label == "FD" else ":",
+                    linestyle=":",
                     linewidth=1,
                     label=f"{label}, far-field",
                 )
@@ -206,30 +208,33 @@ def plot_figure4(rows: list[dict], destination: Path) -> None:
             margin = max((high - low) * 0.18, high * 0.002)
             axis.set_ylim(low - margin, high + margin)
         _log_axis(top, ranges)
-        top.set_ylabel("RCRB (m)")
+        top.set(xlabel="Distance, $r$ (m)", ylabel="RCRB (m)")
+        # Shared axes suppress upper tick labels by default; the paper labels
+        # the distance axis separately on both panels.
+        top.tick_params(axis="x", labelbottom=True)
         left.set(xlabel="Distance, $r$ (m)", ylabel="RCRB, FD (deg)")
         right.set_ylabel("RCRB, HB (deg)")
-        left.set_xticks(sorted({r["distance_m"] for r in rows}))
-        left.set_xlim(
-            min(r["distance_m"] for r in rows) - 0.25, max(r["distance_m"] for r in rows) + 0.25
-        )
+        xmin, xmax = min(r["distance_m"] for r in rows), max(r["distance_m"] for r in rows)
+        left.set_xticks(np.arange(np.ceil(xmin / 5) * 5, xmax + 0.01, 5))
+        left.set_xlim(xmin - 0.25, xmax + 0.25)
         for ax in [top, left, right]:
             _axis(ax)
         top.legend(loc="upper left", fancybox=False, edgecolor="black", borderpad=0.25)
-        # Keep the narrow numerical panel unobscured by placing its legend above it.
+        # The paper places this legend inside the upper-right corner. Curves
+        # at small distances remain visible to its left.
         left.legend(
             handles=angle_handles,
             ncols=2,
-            loc="lower center",
-            bbox_to_anchor=(0.5, 1.02),
+            loc="upper right",
             fancybox=False,
             edgecolor="black",
+            framealpha=1,
             fontsize=8,
             borderpad=0.25,
             columnspacing=1,
             handlelength=2,
         )
-        fig.subplots_adjust(left=0.16, right=0.83, bottom=0.12, top=0.98, hspace=0.43)
+        fig.subplots_adjust(left=0.16, right=0.83, bottom=0.11, top=0.97, hspace=0.53)
         _save(fig, destination)
 
 

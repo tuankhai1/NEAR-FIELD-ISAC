@@ -102,12 +102,15 @@ full paper preset. The optional convergence script specifically compares MOSEK a
 
 These are saved results from the validated **7 September 2026** run: paper preset,
 seed 2023, MOSEK, tolerance 1e-11, 65 antennas, 16 rate points, 8 distances and a
-500 × 500 MUSIC grid. Images in `docs/results/2026-09-07/` are a fixed documentation
-snapshot; rerunning the pipeline updates `results/`, not this gallery.
+500 × 500 MUSIC grid. Figures 2 and 4 were rendered again on 8 September to
+correct their legends and the missing upper distance axis in Figure 4; numerical
+values are unchanged. See the [legend and axis audit](docs/figure_visual_audit.md).
+Images in `docs/results/` are documentation snapshots; rerunning the pipeline
+updates `results/`, not this gallery.
 
 ### Figure 2 — sensing versus communication rate
 
-![Produced Figure 2: range and angle RCRB versus minimum communication rate](docs/results/2026-09-07/figure2_rcrb_vs_rate.png)
+![Produced Figure 2: range and angle RCRB versus minimum communication rate](docs/results/2026-09-08/figure2_rcrb_vs_rate.png)
 
 Fully digital beamforming achieves lower range and angle RCRBs than the hybrid design
 in this realization. The high-rate increase is much weaker than in the paper.
@@ -137,7 +140,7 @@ not establish identical spectrum values at every grid point.
 
 ### Figure 4 — sensing versus target distance
 
-![Produced Figure 4: range and angle RCRB versus target distance](docs/results/2026-09-07/figure4_rcrb_vs_distance.png)
+![Produced Figure 4: range and angle RCRB versus target distance](docs/results/2026-09-08/figure4_rcrb_vs_distance.png)
 
 Range RCRB increases with target distance, and the fully digital range curve has a
 similar trend to the paper but remains about 6.9 times larger. Hybrid angle RCRB
