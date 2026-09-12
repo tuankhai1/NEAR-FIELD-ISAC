@@ -55,6 +55,21 @@ def _prepare_output(path: str | Path) -> Path:
     return output
 
 
+def _validated_sweep(
+    values: Iterable[float], *, name: str, allow_zero: bool
+) -> list[float]:
+    samples = [float(value) for value in values]
+    if not samples:
+        raise ValueError(f"{name} must contain at least one value")
+    if any(
+        not np.isfinite(value) or value < 0 or (value == 0 and not allow_zero)
+        for value in samples
+    ):
+        domain = "non-negative" if allow_zero else "positive"
+        raise ValueError(f"{name} must contain finite, {domain} values")
+    return samples
+
+
 def _save_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
@@ -415,10 +430,10 @@ def reproduce_figure2(
 ) -> dict[str, Any]:
     """Reproduce the sensing/communication tradeoff in paper Fig. 2."""
 
-    output = _prepare_output(output_dir)
     if workers < 1:
         raise ValueError("workers must be at least 1")
-    rates = list(rates)
+    rates = _validated_sweep(rates, name="rates", allow_zero=True)
+    output = _prepare_output(output_dir)
     rng = np.random.default_rng(config.seed)
     scenario = generate_scenario(config, rng)
     receive_combiner = random_hybrid_combiner(config, rng)
@@ -563,10 +578,10 @@ def reproduce_figure4(
     the sweep, implementing the paper's instruction to exclude pathloss.
     """
 
-    output = _prepare_output(output_dir)
     if workers < 1:
         raise ValueError("workers must be at least 1")
-    distances = list(distances)
+    distances = _validated_sweep(distances, name="distances", allow_zero=False)
+    output = _prepare_output(output_dir)
     rng = np.random.default_rng(config.seed)
     base_scenario = generate_scenario(config, rng)
     fixed_target_gain = base_scenario.target_gain

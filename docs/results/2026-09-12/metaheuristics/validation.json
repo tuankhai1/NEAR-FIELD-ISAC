@@ -1,0 +1,332 @@
+{
+  "passed": true,
+  "numerical_source_hashes_match": true,
+  "presentation_sources_changed_since_solve": [],
+  "waveforms_checked": 64,
+  "max_finite_difference_relative_error_percent": 0.00025792837905491695,
+  "minimum_rate_margin": 1.1046630277178338e-10,
+  "minimum_power_margin": 1.0882672540901694e-10,
+  "original_figure4_max_relative_difference_percent": 5.10702591327572e-13,
+  "checks": [
+    {
+      "waveform_file": "distance_5m/fully-digital-sdr.npz",
+      "passed": true,
+      "finite_difference_relative_error": 2.6235774663874167e-09
+    },
+    {
+      "waveform_file": "distance_5m/hybrid-de-sdr_seed_101.npz",
+      "passed": true,
+      "finite_difference_relative_error": 5.345601405970513e-09
+    },
+    {
+      "waveform_file": "distance_5m/hybrid-de-sdr_seed_202.npz",
+      "passed": true,
+      "finite_difference_relative_error": 2.9268844015106765e-09
+    },
+    {
+      "waveform_file": "distance_5m/hybrid-de-sdr_seed_303.npz",
+      "passed": true,
+      "finite_difference_relative_error": 5.345601405970513e-09
+    },
+    {
+      "waveform_file": "distance_5m/hybrid-pso-sdr_seed_101.npz",
+      "passed": true,
+      "finite_difference_relative_error": 5.345601405970513e-09
+    },
+    {
+      "waveform_file": "distance_5m/hybrid-pso-sdr_seed_202.npz",
+      "passed": true,
+      "finite_difference_relative_error": 2.1632819979799933e-09
+    },
+    {
+      "waveform_file": "distance_5m/hybrid-pso-sdr_seed_303.npz",
+      "passed": true,
+      "finite_difference_relative_error": 5.345601405970513e-09
+    },
+    {
+      "waveform_file": "distance_5m/hybrid-two-stage-sdr.npz",
+      "passed": true,
+      "finite_difference_relative_error": 5.345601405970513e-09
+    },
+    {
+      "waveform_file": "distance_10m/fully-digital-sdr.npz",
+      "passed": true,
+      "finite_difference_relative_error": 8.97858454251832e-09
+    },
+    {
+      "waveform_file": "distance_10m/hybrid-de-sdr_seed_101.npz",
+      "passed": true,
+      "finite_difference_relative_error": 9.374001130879606e-09
+    },
+    {
+      "waveform_file": "distance_10m/hybrid-de-sdr_seed_202.npz",
+      "passed": true,
+      "finite_difference_relative_error": 4.354215210611301e-09
+    },
+    {
+      "waveform_file": "distance_10m/hybrid-de-sdr_seed_303.npz",
+      "passed": true,
+      "finite_difference_relative_error": 7.340433816338532e-09
+    },
+    {
+      "waveform_file": "distance_10m/hybrid-pso-sdr_seed_101.npz",
+      "passed": true,
+      "finite_difference_relative_error": 2.46022324734696e-08
+    },
+    {
+      "waveform_file": "distance_10m/hybrid-pso-sdr_seed_202.npz",
+      "passed": true,
+      "finite_difference_relative_error": 8.500670389821607e-09
+    },
+    {
+      "waveform_file": "distance_10m/hybrid-pso-sdr_seed_303.npz",
+      "passed": true,
+      "finite_difference_relative_error": 1.097897639468215e-08
+    },
+    {
+      "waveform_file": "distance_10m/hybrid-two-stage-sdr.npz",
+      "passed": true,
+      "finite_difference_relative_error": 2.46022324734696e-08
+    },
+    {
+      "waveform_file": "distance_15m/fully-digital-sdr.npz",
+      "passed": true,
+      "finite_difference_relative_error": 2.7736632657315852e-08
+    },
+    {
+      "waveform_file": "distance_15m/hybrid-de-sdr_seed_101.npz",
+      "passed": true,
+      "finite_difference_relative_error": 2.7502996879924524e-08
+    },
+    {
+      "waveform_file": "distance_15m/hybrid-de-sdr_seed_202.npz",
+      "passed": true,
+      "finite_difference_relative_error": 2.674954036052668e-08
+    },
+    {
+      "waveform_file": "distance_15m/hybrid-de-sdr_seed_303.npz",
+      "passed": true,
+      "finite_difference_relative_error": 2.1880045886213395e-08
+    },
+    {
+      "waveform_file": "distance_15m/hybrid-pso-sdr_seed_101.npz",
+      "passed": true,
+      "finite_difference_relative_error": 1.8876514351617857e-08
+    },
+    {
+      "waveform_file": "distance_15m/hybrid-pso-sdr_seed_202.npz",
+      "passed": true,
+      "finite_difference_relative_error": 3.090712186182287e-08
+    },
+    {
+      "waveform_file": "distance_15m/hybrid-pso-sdr_seed_303.npz",
+      "passed": true,
+      "finite_difference_relative_error": 2.3117253111770708e-08
+    },
+    {
+      "waveform_file": "distance_15m/hybrid-two-stage-sdr.npz",
+      "passed": true,
+      "finite_difference_relative_error": 1.8876514351617857e-08
+    },
+    {
+      "waveform_file": "distance_20m/fully-digital-sdr.npz",
+      "passed": true,
+      "finite_difference_relative_error": 5.923346502179072e-08
+    },
+    {
+      "waveform_file": "distance_20m/hybrid-de-sdr_seed_101.npz",
+      "passed": true,
+      "finite_difference_relative_error": 5.5702448653605074e-08
+    },
+    {
+      "waveform_file": "distance_20m/hybrid-de-sdr_seed_202.npz",
+      "passed": true,
+      "finite_difference_relative_error": 6.363568960665589e-08
+    },
+    {
+      "waveform_file": "distance_20m/hybrid-de-sdr_seed_303.npz",
+      "passed": true,
+      "finite_difference_relative_error": 5.6064991094118e-08
+    },
+    {
+      "waveform_file": "distance_20m/hybrid-pso-sdr_seed_101.npz",
+      "passed": true,
+      "finite_difference_relative_error": 6.070723788109689e-07
+    },
+    {
+      "waveform_file": "distance_20m/hybrid-pso-sdr_seed_202.npz",
+      "passed": true,
+      "finite_difference_relative_error": 5.906827782453661e-08
+    },
+    {
+      "waveform_file": "distance_20m/hybrid-pso-sdr_seed_303.npz",
+      "passed": true,
+      "finite_difference_relative_error": 5.6658766789396964e-08
+    },
+    {
+      "waveform_file": "distance_20m/hybrid-two-stage-sdr.npz",
+      "passed": true,
+      "finite_difference_relative_error": 6.070723788109689e-07
+    },
+    {
+      "waveform_file": "distance_25m/fully-digital-sdr.npz",
+      "passed": true,
+      "finite_difference_relative_error": 7.627201892290714e-08
+    },
+    {
+      "waveform_file": "distance_25m/hybrid-de-sdr_seed_101.npz",
+      "passed": true,
+      "finite_difference_relative_error": 8.863495981614733e-08
+    },
+    {
+      "waveform_file": "distance_25m/hybrid-de-sdr_seed_202.npz",
+      "passed": true,
+      "finite_difference_relative_error": 9.79538699041882e-08
+    },
+    {
+      "waveform_file": "distance_25m/hybrid-de-sdr_seed_303.npz",
+      "passed": true,
+      "finite_difference_relative_error": 1.273124392575653e-07
+    },
+    {
+      "waveform_file": "distance_25m/hybrid-pso-sdr_seed_101.npz",
+      "passed": true,
+      "finite_difference_relative_error": 3.526761532812728e-07
+    },
+    {
+      "waveform_file": "distance_25m/hybrid-pso-sdr_seed_202.npz",
+      "passed": true,
+      "finite_difference_relative_error": 7.534513812856858e-08
+    },
+    {
+      "waveform_file": "distance_25m/hybrid-pso-sdr_seed_303.npz",
+      "passed": true,
+      "finite_difference_relative_error": 9.270067846678387e-08
+    },
+    {
+      "waveform_file": "distance_25m/hybrid-two-stage-sdr.npz",
+      "passed": true,
+      "finite_difference_relative_error": 3.526761532812728e-07
+    },
+    {
+      "waveform_file": "distance_30m/fully-digital-sdr.npz",
+      "passed": true,
+      "finite_difference_relative_error": 1.8392674405731668e-07
+    },
+    {
+      "waveform_file": "distance_30m/hybrid-de-sdr_seed_101.npz",
+      "passed": true,
+      "finite_difference_relative_error": 2.518695222386569e-07
+    },
+    {
+      "waveform_file": "distance_30m/hybrid-de-sdr_seed_202.npz",
+      "passed": true,
+      "finite_difference_relative_error": 2.684051810808441e-07
+    },
+    {
+      "waveform_file": "distance_30m/hybrid-de-sdr_seed_303.npz",
+      "passed": true,
+      "finite_difference_relative_error": 2.743333517019053e-07
+    },
+    {
+      "waveform_file": "distance_30m/hybrid-pso-sdr_seed_101.npz",
+      "passed": true,
+      "finite_difference_relative_error": 7.61764454182412e-07
+    },
+    {
+      "waveform_file": "distance_30m/hybrid-pso-sdr_seed_202.npz",
+      "passed": true,
+      "finite_difference_relative_error": 2.3253174941118004e-07
+    },
+    {
+      "waveform_file": "distance_30m/hybrid-pso-sdr_seed_303.npz",
+      "passed": true,
+      "finite_difference_relative_error": 2.280014129718566e-07
+    },
+    {
+      "waveform_file": "distance_30m/hybrid-two-stage-sdr.npz",
+      "passed": true,
+      "finite_difference_relative_error": 7.61764454182412e-07
+    },
+    {
+      "waveform_file": "distance_35m/fully-digital-sdr.npz",
+      "passed": true,
+      "finite_difference_relative_error": 4.446838837157685e-07
+    },
+    {
+      "waveform_file": "distance_35m/hybrid-de-sdr_seed_101.npz",
+      "passed": true,
+      "finite_difference_relative_error": 6.053764785018956e-07
+    },
+    {
+      "waveform_file": "distance_35m/hybrid-de-sdr_seed_202.npz",
+      "passed": true,
+      "finite_difference_relative_error": 9.959573978868264e-07
+    },
+    {
+      "waveform_file": "distance_35m/hybrid-de-sdr_seed_303.npz",
+      "passed": true,
+      "finite_difference_relative_error": 6.499519722424907e-07
+    },
+    {
+      "waveform_file": "distance_35m/hybrid-pso-sdr_seed_101.npz",
+      "passed": true,
+      "finite_difference_relative_error": 3.643676784736982e-07
+    },
+    {
+      "waveform_file": "distance_35m/hybrid-pso-sdr_seed_202.npz",
+      "passed": true,
+      "finite_difference_relative_error": 5.736770301023597e-07
+    },
+    {
+      "waveform_file": "distance_35m/hybrid-pso-sdr_seed_303.npz",
+      "passed": true,
+      "finite_difference_relative_error": 6.58109297724252e-07
+    },
+    {
+      "waveform_file": "distance_35m/hybrid-two-stage-sdr.npz",
+      "passed": true,
+      "finite_difference_relative_error": 3.643676784736982e-07
+    },
+    {
+      "waveform_file": "distance_40m/fully-digital-sdr.npz",
+      "passed": true,
+      "finite_difference_relative_error": 1.1242195092631135e-06
+    },
+    {
+      "waveform_file": "distance_40m/hybrid-de-sdr_seed_101.npz",
+      "passed": true,
+      "finite_difference_relative_error": 1.1008092015707405e-06
+    },
+    {
+      "waveform_file": "distance_40m/hybrid-de-sdr_seed_202.npz",
+      "passed": true,
+      "finite_difference_relative_error": 1.5014379688427226e-06
+    },
+    {
+      "waveform_file": "distance_40m/hybrid-de-sdr_seed_303.npz",
+      "passed": true,
+      "finite_difference_relative_error": 1.199924624772919e-06
+    },
+    {
+      "waveform_file": "distance_40m/hybrid-pso-sdr_seed_101.npz",
+      "passed": true,
+      "finite_difference_relative_error": 2.5792837905491695e-06
+    },
+    {
+      "waveform_file": "distance_40m/hybrid-pso-sdr_seed_202.npz",
+      "passed": true,
+      "finite_difference_relative_error": 1.1635403118770427e-06
+    },
+    {
+      "waveform_file": "distance_40m/hybrid-pso-sdr_seed_303.npz",
+      "passed": true,
+      "finite_difference_relative_error": 1.2793124439802739e-06
+    },
+    {
+      "waveform_file": "distance_40m/hybrid-two-stage-sdr.npz",
+      "passed": true,
+      "finite_difference_relative_error": 2.5792837905491695e-06
+    }
+  ]
+}

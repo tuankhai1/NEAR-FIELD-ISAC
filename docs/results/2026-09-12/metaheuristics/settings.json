@@ -1,0 +1,53 @@
+{
+  "search_settings": {
+    "population": 12,
+    "generations": 20,
+    "range_fraction": 0.5,
+    "angle_radius_deg": 3.0,
+    "inertia_start": 0.9,
+    "inertia_end": 0.4,
+    "cognitive": 1.5,
+    "social": 1.5,
+    "velocity_limit": 0.4,
+    "differential_weight": 0.7,
+    "crossover_probability": 0.9
+  },
+  "search_seeds": [
+    101,
+    202,
+    303
+  ],
+  "channel_seed": 2023,
+  "distances_m": [
+    5.0,
+    10.0,
+    15.0,
+    20.0,
+    25.0,
+    30.0,
+    35.0,
+    40.0
+  ],
+  "workers": 4,
+  "solver_options": {
+    "solver": "MOSEK",
+    "verbose": false,
+    "tolerance": 1e-11,
+    "max_iterations": 20000,
+    "solver_threads": 1
+  },
+  "dimension": 10,
+  "pathloss_in_sweep": false,
+  "objective": "CRB_range [m^2] + CRB_angle [rad^2]",
+  "search_space": "Virtual RF focusing ranges +/-50% and angles +/-3 deg by default",
+  "comparison": "Same channel, target gain, receive combiner and inner SDR constraints",
+  "budget": "population * (generations + 1) fitness requests per algorithm/restart",
+  "initialization": "Identical PSO/DE population for each seed; paper HB included",
+  "aggregation": "Mean +/- sample standard deviation over search seeds, one channel",
+  "timing": "Per-search wall time excludes shared original HB solve; includes inner SDRs",
+  "references": {
+    "paper": "https://arxiv.org/html/2302.01153v5#S3",
+    "pso": "https://doi.org/10.1109/ICNN.1995.488968",
+    "de": "https://doi.org/10.1023/A:1008202821328"
+  }
+}

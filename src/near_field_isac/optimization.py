@@ -231,7 +231,18 @@ def solve_sdr(
         normalized = channel.conj() / norm
         signal = cp.real(cp.quad_form(normalized, beam))
         total = cp.real(cp.quad_form(normalized, covariance))
-        constraints.extend([beam >> 0, (1 + 1 / sinr) * signal >= total + 1 / (power * norm**2)])
+        # At high SINR, dividing the constraint by SINR amplifies a small
+        # conic feasibility residual into a failed physical communication rate.
+        # Scale the same inequality back up without changing its feasible set;
+        # retain the original scaling below 1 bit/s/Hz.
+        sinr_scale = max(1.0, sinr)
+        constraints.extend(
+            [
+                beam >> 0,
+                (sinr_scale + sinr_scale / sinr) * signal
+                >= sinr_scale * total + sinr_scale / (power * norm**2),
+            ]
+        )
     problem = cp.Problem(cp.Minimize(cp.trace(epigraph)), constraints)
     attempts: list[dict[str, Any]] = []
     accepted: list[OptimizationResult] = []
@@ -371,23 +382,42 @@ def solve_hybrid_sdr(
     *,
     rng: np.random.Generator | None = None,
     receive_combiner: ComplexArray | None = None,
+    analog_beamformer: ComplexArray | None = None,
+    method_name: str = "hybrid-two-stage-sdr",
     **kwargs: Any,
 ) -> OptimizationResult:
-    """RF focusing and baseband SDR, including rank-deficient RF implementations."""
+    """Optimize baseband for paper focusing or a supplied unit-modulus RF matrix."""
     rng = np.random.default_rng(config.seed + 1) if rng is None else rng
-    analog = hybrid_analog_beamformer(
-        config,
-        scenario,
-        sensing_model=kwargs.get("sensing_model", "near"),
-    )
+    if analog_beamformer is None:
+        analog = hybrid_analog_beamformer(
+            config,
+            scenario,
+            sensing_model=kwargs.get("sensing_model", "near"),
+        )
+    else:
+        analog = np.asarray(analog_beamformer, dtype=complex)
+        if analog.shape != (config.n_antennas, config.n_rf_chains):
+            raise ValueError("Analog beamformer has incompatible shape")
+        if not np.all(np.isfinite(analog)) or not np.allclose(
+            np.abs(analog), 1, rtol=0, atol=1e-10
+        ):
+            raise ValueError("Analog beamformer must be finite and unit modulus")
     if receive_combiner is None:
         receive_combiner = random_hybrid_combiner(config, rng)
+    else:
+        receive_combiner = np.asarray(receive_combiner, dtype=complex)
+        if receive_combiner.shape != (config.n_rf_chains, config.n_antennas):
+            raise ValueError("Receive combiner has incompatible shape")
+        if not np.all(np.isfinite(receive_combiner)) or not np.allclose(
+            np.abs(receive_combiner), 1, rtol=0, atol=1e-10
+        ):
+            raise ValueError("Receive combiner must be finite and unit modulus")
     result = solve_sdr(
         config,
         scenario,
         transmit_basis=analog,
         receive_combiner=receive_combiner,
-        method_name="hybrid-two-stage-sdr",
+        method_name=method_name,
         **kwargs,
     )
     basis = result.metadata["transmit_basis"]

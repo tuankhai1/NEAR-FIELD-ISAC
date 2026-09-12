@@ -4,12 +4,20 @@ Reproduction of Z. Wang, X. Mu, and Y. Liu, **Near-Field Integrated Sensing and 
 
 The code implements exact spherical-wave channels, joint range/angle CRBs, fully digital SDR, two-stage hybrid beamforming, and MUSIC. The numerical revision adds exact transmit-subspace reduction, balanced inverse-FIM optimization, physical acceptance checks, rank-safe RF recovery, an independent far-field reference, and reproducible per-point artifacts.
 
+Latest verification (**12 September 2026**): all 110 tests and lint passed;
+the full MOSEK paper pipeline passed independent checks on 51 waveforms,
+and the PSO/DE comparison passed all 64 waveform checks.
+See the [pipeline audit](docs/pipeline_audit_2026-09-12.md) for the current
+results, solver limitations and commands. The gallery below retains its dated
+September 7–8 snapshots.
+
 ## Install and run
 
 On this computer, open a PowerShell terminal and run:
 
 ```powershell
 Set-Location "D:\NTK\PROJECTS\NEAR-FIELD ISAC"
+& .\.venv\Scripts\Activate.ps1
 python main.py all --preset paper --solver auto --solver-threads 2
 python scripts/validate_results.py
 ```
@@ -17,7 +25,9 @@ python scripts/validate_results.py
 The first command generates Figures 2–4; the second independently checks the saved
 waveforms and generates the comparison report. Open
 [`results/validation/report.md`](results/validation/report.md) after validation.
-The installed environment on this computer already has the required packages and licensed MOSEK.
+The project `.venv` on this computer has the required packages and licensed MOSEK.
+If PowerShell blocks activation, replace `python` in these commands with
+`.\.venv\Scripts\python.exe`.
 
 For a fresh environment, use Python 3.10 or later and install the package first:
 
@@ -100,6 +110,20 @@ full paper preset. The optional convergence script specifically compares MOSEK a
 
 ## Produced figures and comments
 
+The additional PSO/DE comparison can be run independently:
+
+```powershell
+python main.py metaheuristics --preset paper --solver MOSEK --solver-threads 1 --workers 4
+python scripts/validate_metaheuristics.py --original-figure4 results/figure4
+```
+
+It compares original FD/HB with PSO + SDR and DE + SDR over the Figure 4 distance
+grid, using the same physical scenario and three paired search seeds. Outputs
+go to `results/metaheuristics/`, including two comparison/convergence plots,
+per-restart CSVs, saved RF/baseband waveforms, and evaluation logs. Each algorithm
+receives 252 fitness requests per restart; the analog search uses ten virtual
+focusing coordinates. See the [method and settings](docs/metaheuristics.md).
+
 These are saved results from the validated **7 September 2026** run: paper preset,
 seed 2023, MOSEK, tolerance 1e-11, 65 antennas, 16 rate points, 8 distances and a
 500 × 500 MUSIC grid. Figures 2 and 4 were rendered again on 8 September to
@@ -151,6 +175,36 @@ come from separately optimized angle-only designs under the documented
 across different sensing models and hybrid transmit subspaces.
 
 See [why Figure 4 differs](docs/figure4_discrepancies.md) for the measured scale offsets, hybrid shape differences and unresolved modeling assumptions.
+
+### Figure 4 — additional PSO/DE comparison
+
+![Original FD/HB versus PSO and DE hybrid designs](docs/results/2026-09-08/metaheuristics/figure4_metaheuristic_comparison.png)
+
+The new algorithms optimize ten virtual RF focusing coordinates, with the
+original SDR solving the digital stage for every candidate. This run uses the
+same paper preset, channel seed 2023, fixed target gain and receive combiner as
+the original Figure 4. Both methods receive 252 fitness requests per restart
+and identical initial populations for search seeds 101, 202 and 303. Curves show
+the mean and shading shows one sample standard deviation across these restarts.
+Both panels use common logarithmic axes to compare physical values directly.
+
+At 20 m, PSO lowers mean range RCRB from 0.17750 m to 0.15271 m (**13.96%**),
+and DE to 0.14274 m (**19.58%**). Mean trace CRB decreases by **24.99%** and
+**35.25%**, respectively. Angle RCRB increases by **17.67%** and **48.38%**:
+the original mixed-unit objective prioritizes range variance. These are gains
+in the optimized total with an angle-accuracy tradeoff, not improvements in
+every sensing metric. Three search restarts on one channel do not establish
+performance over a distribution of channels or global convergence.
+
+See the [convergence plot](docs/results/2026-09-08/metaheuristics/metaheuristic_convergence.png),
+[numerical comparison](docs/results/2026-09-08/metaheuristics/comparison.csv), and
+[method/settings explanation](docs/metaheuristics.md). The raw evaluation logs
+and RF/baseband waveforms are in `results/metaheuristics/`. Timings and actual
+SDR call counts are reported separately; repeated fitness requests use a cache.
+The full comparison completed in 438.4 seconds with four workers. All 64 saved
+waveforms passed independent validation (maximum finite-difference CRB error:
+0.000257928%), and all 36 tests passed. See the
+[validation record](docs/results/2026-09-08/metaheuristics/validation.json).
 
 ### Cross-validation and remaining disagreement
 

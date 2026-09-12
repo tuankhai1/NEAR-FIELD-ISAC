@@ -1,3 +1,5 @@
+import pytest
+
 import near_field_isac.cli as cli
 from near_field_isac.cli import build_parser
 
@@ -62,3 +64,31 @@ def test_all_command_orchestrates_all_three_figures(monkeypatch, tmp_path) -> No
 def test_smoke_preset_keeps_the_tiny_validation_model() -> None:
     arguments = build_parser().parse_args(["figure3", "--preset", "smoke"])
     assert arguments.preset == "smoke"
+
+
+def test_metaheuristic_command_defaults_to_matched_paper_comparison() -> None:
+    arguments = build_parser().parse_args(["metaheuristics"])
+    assert arguments.preset == "paper"
+    assert arguments.population == 12
+    assert arguments.generations == 20
+    assert arguments.search_seeds == [101, 202, 303]
+    assert arguments.seed == 2023
+
+
+@pytest.mark.parametrize("arguments", [
+    ["all", "--grid-size", "0"],
+    ["figure3", "--grid-size", "1"],
+    ["all", "--workers", "0"],
+    ["all", "--solver-threads", "0"],
+    ["all", "--rates", "nan"],
+    ["figure2", "--rates", "-1"],
+    ["figure4", "--distances", "inf"],
+    ["metaheuristics", "--distances", "0"],
+    ["metaheuristics", "--search-seeds", "-1"],
+    ["all", "--tolerance", "nan"],
+    ["all", "--max-iterations", "0"],
+])
+def test_invalid_cli_inputs_fail_before_running_experiments(arguments):
+    with pytest.raises(SystemExit) as error:
+        build_parser().parse_args(arguments)
+    assert error.value.code == 2

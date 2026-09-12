@@ -1,0 +1,21 @@
+{
+  "physical_points_checked": 51,
+  "all_physical_checks_passed": true,
+  "largest_independent_crb_relative_error": 2.579283787440545e-06,
+  "smallest_rate_margin": 0.0,
+  "figure3_range_m": 19.952031020253685,
+  "figure3_angle_deg": 45.0,
+  "figure3_range_difference_from_reported_paper_m": 3.102025368306727e-05,
+  "far_music_relative_spread_along_target_ray": 1.1010981015860052e-10,
+  "reference_source": {
+    "source": "Near-Field ISAC.pdf, arXiv:2302.01153v5, 23 September 2025",
+    "source_sha256": "c4dea3caec6495d08a1c0fba56d13ca9f9c9372173ccac053fbff46b8f2fa4b1",
+    "method": "Vector path extraction with linear/logarithmic tick calibration",
+    "limitations": "Displayed plot coordinates, not raw author data; allow rounding error.",
+    "figure3_estimated_range_m": 19.952,
+    "figure3_estimated_angle_deg": 45.0,
+    "figure4_fd_far_angle_deg": 3.450503030891267e-05,
+    "figure4_hb_far_angle_deg": 0.0001991388023272857
+  },
+  "interpretation": "Paper values are digitized plot coordinates, not author simulation data. No amplitude fitting or curve smoothing was applied."
+}

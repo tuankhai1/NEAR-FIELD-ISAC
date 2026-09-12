@@ -67,6 +67,12 @@ def zf_sensing_baseline(
     target_angle = config.target_angle if target_angle is None else target_angle
     if channels.shape != (config.n_antennas, config.n_users):
         raise ValueError("channels has an incompatible shape")
+    if not np.isfinite(min_rate) or min_rate < 0:
+        raise ValueError("min_rate must be finite and non-negative")
+    if not np.all(np.isfinite(channels)):
+        raise ValueError("communication channels must be finite")
+    if np.linalg.matrix_rank(channels.T) < config.n_users:
+        raise ValueError("communication channel matrix is rank deficient")
 
     raw_directions = np.linalg.pinv(channels.T)
     norms = np.linalg.norm(raw_directions, axis=0)
@@ -107,4 +113,3 @@ def zf_sensing_baseline(
         sensing_covariance=sensing_covariance,
         method="zf-sensing",
     )
-

@@ -1,0 +1,65 @@
+{
+  "config": {
+    "aperture": 0.5,
+    "carrier_frequency": 28000000000.0,
+    "coherent_block_length": 128,
+    "min_rate": 5.0,
+    "n_antennas": 65,
+    "n_rf_chains": 5,
+    "n_users": 4,
+    "noise_power_dbm": -60.0,
+    "optimization_scale": 100.0,
+    "seed": 2023,
+    "speed_of_light": 300000000.0,
+    "target_angle_deg": 45.0,
+    "target_range": 20.0,
+    "transmit_power_dbm": 20.0
+  },
+  "hybrid_crb_noise_model": "Paper approximation: N * sigma^2 * I",
+  "hybrid_music_noise_model": "Exact combined antenna noise with whitening",
+  "objective_units": "range variance in m^2 plus angle variance in rad^2",
+  "python": "3.14.7",
+  "source_sha256": {
+    "__init__.py": "8980d196f8cece368632a29759a87364763bd84dc9803a8d5db7c23a86054355",
+    "__main__.py": "19f07de3d1765a6803d4332ab1e67346381236f7769f47640e73849922394790",
+    "channels.py": "c74bc43fd73ff699780c150141653849b67a85b8e645585021dbc254fcaee50c",
+    "cli.py": "c8bbc9fcc061a638c2707d0e35fd83d1ee6a8131c5d64cd6228dbcac0b6d33fb",
+    "communication.py": "9920298ed73f5402166049dbd1af261d5ec7227799c0fe458677793104b9874a",
+    "config.py": "08562a845afb0203c828a605e7e8e2c59e3e62a4c827c6407d4b67f8607ebebe",
+    "experiments.py": "248bb1e2a3f3a3510b3b4ae8706ff8ef1f25a6d2532273c08d17778c81d17cf6",
+    "fim.py": "bef1906eda1cdf515be64badf4a7a97580ea74d4e9419758b28f8227c2469e94",
+    "meta_experiment.py": "d22edb7f4b984cdf312352b7b6be74d853ece5dc6c62a157a58ece113842bd89",
+    "metaheuristics.py": "5b8ae540a19226f87f69c4e356c5a3b40a165c343275fb11b1ecc0c76feb3986",
+    "music.py": "22ca113f25f9c4681867a27a6fa9e78d07dc8264ffc9c0a38ea28cd244d42fa6",
+    "optimization.py": "15283e654e6b0a7e8ff1511b26e57a97fdfb14aacaafd1b78c52b630d5063ed8",
+    "plotting.py": "00aef3a7c970d7fcf5b05439afe3534831d6ac01d77be60d5d27877050f3b3af"
+  },
+  "target_gain": [
+    -1.0923781726896625e-05,
+    0.0003813846858788499
+  ],
+  "target_reflection": [
+    -0.4449747286014922,
+    -0.2741855613904848
+  ],
+  "user_angles_deg": [
+    125.51965588842313,
+    98.31278612633734,
+    137.13489032035483,
+    105.28223095519657
+  ],
+  "user_ranges_m": [
+    4.109207888929938,
+    10.287202069072327,
+    5.28129253084472,
+    20.671785623142277
+  ],
+  "versions": {
+    "clarabel": "0.11.1",
+    "cvxpy": "1.9.2",
+    "matplotlib": "3.11.2",
+    "mosek": "11.2.4",
+    "numpy": "2.5.3",
+    "scipy": "1.18.1"
+  }
+}

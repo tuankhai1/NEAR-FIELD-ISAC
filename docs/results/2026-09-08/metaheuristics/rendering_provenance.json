@@ -1,0 +1,14 @@
+{
+  "reason": "Presentation-only refresh: readable scientific labels on the logarithmic angle axis",
+  "plotting_source_sha256": "00aef3a7c970d7fcf5b05439afe3534831d6ac01d77be60d5d27877050f3b3af",
+  "input_sha256": {
+    "summary.json": "7b55b68cb1f6e9bba79f276161604316904f63262ffab7086419c84600d705b5",
+    "convergence.csv": "785a21f8bbd7eef20e09fea184ff07549fe5949123d585c1cfdc5c9010f7e9fa"
+  },
+  "output_sha256": {
+    "figure4_metaheuristic_comparison.png": "0c70cee82da0908b3c558a44c8b99c2d32fff573356ba910227bfaddc03cc38f",
+    "figure4_metaheuristic_comparison.svg": "c54e137b38324acaac1578684e172081628c8ffddac61fdf582482330ef0abef",
+    "metaheuristic_convergence.png": "e75028dc513b12e886047f5f2f0c4f030481e0558a2cabb452385ddc6542b211",
+    "metaheuristic_convergence.svg": "986fe772dc00c8bcd9f60655c2240c9d73c5c71beea991f37233e6ad00b15f5a"
+  }
+}

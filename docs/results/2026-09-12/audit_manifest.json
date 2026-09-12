@@ -1,0 +1,89 @@
+{
+  "date": "2026-09-12",
+  "run_directory": "results/pipeline-complete-2026-09-12",
+  "source_state": "Uncommitted working tree; exact source content identified by SHA-256",
+  "source_sha256": {
+    "__init__.py": "8980d196f8cece368632a29759a87364763bd84dc9803a8d5db7c23a86054355",
+    "__main__.py": "19f07de3d1765a6803d4332ab1e67346381236f7769f47640e73849922394790",
+    "channels.py": "c74bc43fd73ff699780c150141653849b67a85b8e645585021dbc254fcaee50c",
+    "cli.py": "c8bbc9fcc061a638c2707d0e35fd83d1ee6a8131c5d64cd6228dbcac0b6d33fb",
+    "communication.py": "9920298ed73f5402166049dbd1af261d5ec7227799c0fe458677793104b9874a",
+    "config.py": "08562a845afb0203c828a605e7e8e2c59e3e62a4c827c6407d4b67f8607ebebe",
+    "experiments.py": "248bb1e2a3f3a3510b3b4ae8706ff8ef1f25a6d2532273c08d17778c81d17cf6",
+    "fim.py": "bef1906eda1cdf515be64badf4a7a97580ea74d4e9419758b28f8227c2469e94",
+    "meta_experiment.py": "d22edb7f4b984cdf312352b7b6be74d853ece5dc6c62a157a58ece113842bd89",
+    "metaheuristics.py": "5b8ae540a19226f87f69c4e356c5a3b40a165c343275fb11b1ecc0c76feb3986",
+    "music.py": "22ca113f25f9c4681867a27a6fa9e78d07dc8264ffc9c0a38ea28cd244d42fa6",
+    "optimization.py": "15283e654e6b0a7e8ff1511b26e57a97fdfb14aacaafd1b78c52b630d5063ed8",
+    "plotting.py": "00aef3a7c970d7fcf5b05439afe3534831d6ac01d77be60d5d27877050f3b3af"
+  },
+  "validation_and_test_sha256": {
+    "tests/test_cli.py": "b9763d8291d270c0b0ebf4c81a04fce5723de84b402683872d0b899b7f901aa5",
+    "tests/test_config_and_channels.py": "2ac4e8b795e24ec81aa4a70470aa3392917126530ab59707f99f671d52d26661",
+    "tests/test_experiments.py": "703e72098baa12b9202d4353dfdcb44eb870307787e5ae20c776784a4345789a",
+    "tests/test_fim_and_communication.py": "6d03798fe722b2e24c2047099bf06835156f7ceb2c483385c20c83a498620ad1",
+    "tests/test_meta_experiment.py": "0695f89a70b95a057529f9b5404384ba3e88c7702cf02bd82323f2ca6061585e",
+    "tests/test_metaheuristics.py": "1d6e5213bf66dcb67e86dfb323d4a20731aa3493c3d5993d1940372534d05b33",
+    "tests/test_music.py": "5d11eb482c3251e00e0bb490633a6864342485c60dacd452a867e90d28165481",
+    "tests/test_numerical_regressions.py": "aaf10a4af222c6ebf7ef2fa832f69da76e0a2b30d76d30b8b379741334c8c7e8",
+    "tests/test_optimization.py": "be2438e5eb6107cce0ba751787efdf57c16a0036d437b4d8ddab32609d67dac3",
+    "tests/test_validation.py": "4b814d49f5def68c39e4f6247ebefe8c71fd563d4f88ee8957e9063a5e9bcd87",
+    "scripts/validate_results.py": "472692063641896c74ea7460d407f1394b193440e85c48ff1177abcdf7c81532",
+    "scripts/validate_metaheuristics.py": "c90156e378f458813806504f2153f26fa34330a3e91f6b807ffa657f18c15617",
+    "scripts/check_solver_convergence.py": "c63d0fd48c81507e96e9ce53b4bdd573f21c502a3ab0baa2a2e6e13e61a827c1"
+  },
+  "checks": {
+    "pytest": {
+      "command": ".venv/Scripts/python.exe -m pytest -q --basetemp results/pytest-resume-authorized-20260912",
+      "exit_code": 0,
+      "passed": 110,
+      "skipped": 0,
+      "execution": "Outside the restricted Windows sandbox, after temporary-folder permission failures inside it"
+    },
+    "ruff": {
+      "command": ".venv/Scripts/python.exe -m ruff check src tests scripts",
+      "exit_code": 0
+    },
+    "figures": {
+      "command": ".venv/Scripts/python.exe scripts/validate_results.py --results results/pipeline-complete-2026-09-12",
+      "exit_code": 0,
+      "waveforms_checked": 51,
+      "record": "figure_validation.json"
+    },
+    "metaheuristics": {
+      "command": ".venv/Scripts/python.exe scripts/validate_metaheuristics.py --results results/pipeline-complete-2026-09-12/metaheuristics --original-figure4 results/pipeline-complete-2026-09-12/figure4",
+      "exit_code": 0,
+      "waveforms_checked": 64,
+      "record": "metaheuristics/validation.json"
+    },
+    "solver_comparison": {
+      "record": "solver_convergence.json",
+      "accepted_mosek_cases": 16,
+      "accepted_clarabel_cases": 6,
+      "rejected_clarabel_cases": 2
+    },
+    "visual_review": [
+      "figure2_rcrb_vs_rate.png",
+      "figure3_music_spectrum.png",
+      "figure4_rcrb_vs_distance.png",
+      "figure4_metaheuristic_comparison.png",
+      "metaheuristic_convergence.png"
+    ]
+  },
+  "metaheuristic_wall_seconds": 845.4272096000004,
+  "snapshot_sha256": {
+    "figure2_provenance.json": "e2f61caec0b8ff5683a177e48e25d6de2b032485bdc0078c123e66389dc8b4c5",
+    "figure3_provenance.json": "e2f61caec0b8ff5683a177e48e25d6de2b032485bdc0078c123e66389dc8b4c5",
+    "figure4_provenance.json": "e2f61caec0b8ff5683a177e48e25d6de2b032485bdc0078c123e66389dc8b4c5",
+    "figure_validation.json": "379e2922c929ee7a2f61f547efb47a20928ebdaad4d4ebc7c552a3835e342291",
+    "metaheuristics/comparison.csv": "d8b3e2d3c31570dca1be327babf05ae5d25a3f8a71f21ad8f8bf30c280000c39",
+    "metaheuristics/convergence.csv": "014c3d37f36a76fe5cade79fc6103b9c5d481f2f2365f7feb41b604be4d3837b",
+    "metaheuristics/figure4_metaheuristic_comparison.png": "e98234beb80569a3ee01df2f2f235369f8c166bd9321a0ffd7a27d4f89b12289",
+    "metaheuristics/metaheuristic_convergence.png": "1d0d54049b6e2cdfcb1d93b4071614510bf20a56d86bbb2c3f15e4b6ab3ec154",
+    "metaheuristics/provenance.json": "e2f61caec0b8ff5683a177e48e25d6de2b032485bdc0078c123e66389dc8b4c5",
+    "metaheuristics/runs.csv": "6aefe4a61fe01dc8c3d5574426f1445a25291ef584090dd4a83effc78e4cc144",
+    "metaheuristics/settings.json": "903764a85f40164c8a21107f6ef9e5bd630d6bdf9e587620d50f5098aa9b1d7d",
+    "metaheuristics/validation.json": "4aafbe5f2159625aa2bc88934ea92d983563663e9810ec56eb3503166989019a",
+    "solver_convergence.json": "801c73a4f0fbc164541cd57da0b91df15bbe6d7cfae217f4ede92ef56258e03b"
+  }
+}

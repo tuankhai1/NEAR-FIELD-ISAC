@@ -7,7 +7,13 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
-from matplotlib.ticker import LogFormatterMathtext, LogLocator, NullFormatter, ScalarFormatter
+from matplotlib.ticker import (
+    LogFormatterMathtext,
+    LogFormatterSciNotation,
+    LogLocator,
+    NullFormatter,
+    ScalarFormatter,
+)
 
 from .music import MusicResult
 
@@ -327,4 +333,85 @@ def plot_music_pair(
             )
             ax.text2D(0.5, -0.09, caption, transform=ax.transAxes, ha="center", fontsize=11)
         fig.subplots_adjust(left=0.005, right=0.995, top=0.95, bottom=0.12, wspace=0.01)
+        _save(fig, destination)
+
+
+META_METHODS = [
+    ("fully-digital-sdr", "Original FD", BLUE, "o", "-"),
+    ("hybrid-two-stage-sdr", "Original HB", GREEN, ">", "--"),
+    ("hybrid-pso-sdr", "HB + PSO", "#d55e00", "s", "-"),
+    ("hybrid-de-sdr", "HB + DE", "#8b008b", "D", "-"),
+]
+
+
+def plot_metaheuristic_comparison(
+    rows: list[dict], destination: Path, *, minimum_rate: float = 5.0
+) -> None:
+    """Figure-4 layout with common physical axes and search-restart variation."""
+    with plt.rc_context(STYLE):
+        fig, axes = plt.subplots(2, 1, figsize=(6.3, 5.5), sharex=True)
+        for ax, key, label in zip(
+            axes, ("range_rcrb_m", "angle_rcrb_deg"),
+            ("RCRB for distance (m)", "RCRB for angle (deg)"), strict=True,
+        ):
+            bounds = []
+            for method, legend, color, marker, line in META_METHODS:
+                part = sorted([r for r in rows if r["method"] == method],
+                              key=lambda r: r["distance_m"])
+                x = np.array([r["distance_m"] for r in part])
+                mean = np.array([r[key + "_mean"] for r in part])
+                std = np.array([r[key + "_std"] for r in part])
+                ax.plot(x, mean, color=color, marker=marker, linestyle=line,
+                        markerfacecolor="white", markersize=4, linewidth=1.15, label=legend)
+                if any(r["runs"] > 1 for r in part):
+                    # Mask nonpositive statistical limits on a log axis; the
+                    # measured means are never clipped or renormalized.
+                    ax.fill_between(x, mean - std, mean + std, where=mean > std,
+                                    color=color, alpha=0.13, linewidth=0)
+                bounds.extend(mean.tolist())
+                bounds.extend((mean + std).tolist())
+                bounds.extend((mean - std)[mean > std].tolist())
+            _log_axis(ax, bounds)
+            ax.set_ylim(min(bounds) / 1.3, max(bounds) * 1.5)
+            ax.set(xlabel="Distance, $r$ (m)", ylabel=label)
+            ax.tick_params(axis="x", labelbottom=True)
+            _axis(ax)
+        axes[1].yaxis.set_major_locator(LogLocator(base=10, subs=(1, 2, 5)))
+        axes[1].yaxis.set_major_formatter(LogFormatterSciNotation(
+            labelOnlyBase=False, minor_thresholds=(np.inf, np.inf),
+        ))
+        distances = sorted({r["distance_m"] for r in rows})
+        axes[1].set_xticks(distances)
+        axes[1].set_xlim(min(distances) - 0.5, max(distances) + 0.5)
+        axes[0].legend(ncols=2, loc="upper left", fontsize=8,
+                       fancybox=False, edgecolor="black", framealpha=1)
+        fig.text(0.5, 0.015, "Mean across search seeds; shading: ±1 standard deviation",
+                 ha="center", fontsize=9)
+        fig.suptitle(f"$R_{{\\min}} = {minimum_rate:g}$ bit/s/Hz; fixed target gain", fontsize=10)
+        fig.subplots_adjust(left=0.17, right=0.98, top=0.94, bottom=0.13, hspace=0.43)
+        _save(fig, destination)
+
+
+def plot_metaheuristic_convergence(rows: list[dict], destination: Path) -> None:
+    """Equal-budget convergence, normalized by each distance's original HB trace."""
+    with plt.rc_context(STYLE):
+        fig, ax = plt.subplots(figsize=(6, 3.5))
+        for method, label, color, _, _ in META_METHODS[2:]:
+            part = [r for r in rows if r["method"] == method]
+            counts = sorted({r["evaluations"] for r in part})
+            values = [np.array([r["objective_over_original_hb"] for r in part
+                                if r["evaluations"] == n]) for n in counts]
+            mean = np.array([np.mean(v) for v in values])
+            std = np.array([np.std(v, ddof=1) if len(v) > 1 else 0 for v in values])
+            ax.plot(counts, mean, color=color, linewidth=1.3, label=label)
+            ax.fill_between(counts, mean - std, mean + std, color=color, alpha=0.13,
+                            linewidth=0)
+        ax.axhline(1, color=GREEN, linestyle="--", linewidth=1, label="Original HB")
+        ax.set(xlabel="Fitness evaluations (including shared initialization)",
+               ylabel="Best trace CRB / original HB trace CRB")
+        ax.set_xlim(counts[0], counts[-1])
+        _axis(ax)
+        ax.legend(loc="best", fancybox=False, edgecolor="black")
+        fig.text(0.5, 0.015, "Mean ±1 SD over distances and search seeds", ha="center", fontsize=9)
+        fig.tight_layout(rect=(0, 0.05, 1, 1), pad=0.7)
         _save(fig, destination)
