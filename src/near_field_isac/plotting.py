@@ -343,11 +343,24 @@ META_METHODS = [
     ("hybrid-de-sdr", "HB + DE", "#8b008b", "D", "-"),
 ]
 
+PARETO_METHODS = [
+    ("fully-digital-sdr", "Original FD", BLUE, "o", "-"),
+    ("hybrid-two-stage-sdr", "Original HB", GREEN, ">", "--"),
+    ("hybrid-balanced-sdr", "HB + balanced SDR", "#0072b2", "^", "-"),
+    ("hybrid-pareto-pso", "Capped HB + PSO", "#d55e00", "s", "-"),
+    ("hybrid-pareto-de", "Capped HB + DE", "#8b008b", "D", "-"),
+]
+
 
 def plot_metaheuristic_comparison(
-    rows: list[dict], destination: Path, *, minimum_rate: float = 5.0
+    rows: list[dict],
+    destination: Path,
+    *,
+    minimum_rate: float = 5.0,
+    methods: list[tuple[str, str, str, str, str]] | None = None,
 ) -> None:
     """Figure-4 layout with common physical axes and search-restart variation."""
+    methods = META_METHODS if methods is None else methods
     with plt.rc_context(STYLE):
         fig, axes = plt.subplots(2, 1, figsize=(6.3, 5.5), sharex=True)
         for ax, key, label in zip(
@@ -355,7 +368,7 @@ def plot_metaheuristic_comparison(
             ("RCRB for distance (m)", "RCRB for angle (deg)"), strict=True,
         ):
             bounds = []
-            for method, legend, color, marker, line in META_METHODS:
+            for method, legend, color, marker, line in methods:
                 part = sorted([r for r in rows if r["method"] == method],
                               key=lambda r: r["distance_m"])
                 x = np.array([r["distance_m"] for r in part])
@@ -383,7 +396,7 @@ def plot_metaheuristic_comparison(
         distances = sorted({r["distance_m"] for r in rows})
         axes[1].set_xticks(distances)
         axes[1].set_xlim(min(distances) - 0.5, max(distances) + 0.5)
-        axes[0].legend(ncols=2, loc="upper left", fontsize=8,
+        axes[0].legend(ncols=min(3, len(methods)), loc="upper left", fontsize=8,
                        fancybox=False, edgecolor="black", framealpha=1)
         fig.text(0.5, 0.015, "Mean across search seeds; shading: ±1 standard deviation",
                  ha="center", fontsize=9)
@@ -392,13 +405,26 @@ def plot_metaheuristic_comparison(
         _save(fig, destination)
 
 
-def plot_metaheuristic_convergence(rows: list[dict], destination: Path) -> None:
-    """Equal-budget convergence, normalized by each distance's original HB trace."""
+def plot_metaheuristic_convergence(
+    rows: list[dict],
+    destination: Path,
+    *,
+    methods: list[tuple[str, str, str, str, str]] | None = None,
+    baseline_label: str = "Original HB",
+    ylabel: str = "Best trace CRB / original HB trace CRB",
+    unit_interval: bool = False,
+) -> None:
+    """Equal-budget convergence for an explicitly supplied normalized metric."""
+    methods = META_METHODS[2:] if methods is None else methods
     with plt.rc_context(STYLE):
         fig, ax = plt.subplots(figsize=(6, 3.5))
-        for method, label, color, _, _ in META_METHODS[2:]:
+        all_counts = []
+        for method, label, color, _, _ in methods:
             part = [r for r in rows if r["method"] == method]
+            if not part:
+                continue
             counts = sorted({r["evaluations"] for r in part})
+            all_counts.extend(counts)
             values = [np.array([r["objective_over_original_hb"] for r in part
                                 if r["evaluations"] == n]) for n in counts]
             mean = np.array([np.mean(v) for v in values])
@@ -406,10 +432,12 @@ def plot_metaheuristic_convergence(rows: list[dict], destination: Path) -> None:
             ax.plot(counts, mean, color=color, linewidth=1.3, label=label)
             ax.fill_between(counts, mean - std, mean + std, color=color, alpha=0.13,
                             linewidth=0)
-        ax.axhline(1, color=GREEN, linestyle="--", linewidth=1, label="Original HB")
+        ax.axhline(1, color=GREEN, linestyle="--", linewidth=1, label=baseline_label)
         ax.set(xlabel="Fitness evaluations (including shared initialization)",
-               ylabel="Best trace CRB / original HB trace CRB")
-        ax.set_xlim(counts[0], counts[-1])
+               ylabel=ylabel)
+        ax.set_xlim(min(all_counts), max(all_counts))
+        if unit_interval:
+            ax.set_ylim(0, 1.05)
         _axis(ax)
         ax.legend(loc="best", fancybox=False, edgecolor="black")
         fig.text(0.5, 0.015, "Mean ±1 SD over distances and search seeds", ha="center", fontsize=9)

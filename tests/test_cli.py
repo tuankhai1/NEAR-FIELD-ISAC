@@ -75,6 +75,15 @@ def test_metaheuristic_command_defaults_to_matched_paper_comparison() -> None:
     assert arguments.seed == 2023
 
 
+def test_pareto_command_exposes_component_capped_search_controls() -> None:
+    arguments = build_parser().parse_args(["pareto"])
+    assert arguments.preset == "paper"
+    assert arguments.phase_modes == 3
+    assert arguments.phase_radius == 0.35
+    assert arguments.polish_evaluations == 64
+    assert arguments.restart_patience == 4
+
+
 @pytest.mark.parametrize("arguments", [
     ["all", "--grid-size", "0"],
     ["figure3", "--grid-size", "1"],
@@ -85,6 +94,8 @@ def test_metaheuristic_command_defaults_to_matched_paper_comparison() -> None:
     ["figure4", "--distances", "inf"],
     ["metaheuristics", "--distances", "0"],
     ["metaheuristics", "--search-seeds", "-1"],
+    ["pareto", "--phase-modes", "-1"],
+    ["pareto", "--polish-evaluations", "-1"],
     ["all", "--tolerance", "nan"],
     ["all", "--max-iterations", "0"],
 ])

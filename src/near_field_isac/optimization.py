@@ -140,11 +140,14 @@ def solve_sdr(
     method_name: str = "fully-digital-sdr",
     sensing_model: str = "near",
     reduce_dimension: bool = True,
+    crb_reference: FloatArray | None = None,
 ) -> OptimizationResult:
     """Unchanged radians-based trace-CRB objective, with a balanced inverse LMI.
 
     Far-field mode optimizes angle alone, retaining the supplied communication
-    channels. No secondary objective or smoothing is applied.
+    channels. With a two-component physical ``crb_reference``, minimize the
+    mean normalized variance and cap each variance at its reference value.
+    The default remains the original mixed-unit trace objective.
     """
     cp = _import_cvxpy()
     rate = config.min_rate if min_rate is None else float(min_rate)
@@ -154,6 +157,20 @@ def solve_sdr(
         raise ValueError("solver_threads must be positive")
     if abs(scenario.target_gain) == 0:
         raise ValueError("Cannot optimize sensing with zero target gain")
+    if crb_reference is not None:
+        crb_reference = np.asarray(crb_reference, dtype=float)
+        if (
+            sensing_model != "near"
+            or crb_reference.shape != (2,)
+            or not np.isfinite(crb_reference).all()
+            or np.any(crb_reference <= 0)
+        ):
+            raise ValueError("CRB reference must contain two positive finite near-field variances")
+    noise_factor = config.n_antennas if receive_combiner is not None else 1
+    physical_factor = (
+        config.optimization_scale * config.noise_power * noise_factor
+        / config.coherent_block_length
+    )
     if transmit_basis is None:
         basis = (
             exact_transmit_basis(
@@ -217,9 +234,18 @@ def solve_sdr(
     normalizer = float(max(coordinate_scale[:count] ** 2))
     selector = np.zeros((count + 2, count))
     selector[:count] = np.diag(coordinate_scale[:count] / np.sqrt(normalizer))
+    if crb_reference is not None:
+        # Inverse LMI now bounds D^-1/2 CRB_physical D^-1/2 directly.
+        # Normalizing the selector also resolves the previously tiny angle term.
+        selector[:count] = np.diag(
+            coordinate_scale[:count] * np.sqrt(physical_factor / crb_reference)
+        )
+        normalizer = 1.0
     epigraph = cp.Variable((count, count), symmetric=True)
     inverse_lmi = cp.bmat([[information, selector], [selector.T, epigraph]])
     constraints = [covariance >> 0, cp.real(cp.trace(covariance)) <= 1, inverse_lmi >> 0]
+    if crb_reference is not None:
+        constraints.append(cp.diag(epigraph) <= 1)
     if lifted:
         constraints.append(covariance - sum(lifted) >> 0)
     sinr = np.expm1(np.log(2) * rate)
@@ -243,7 +269,10 @@ def solve_sdr(
                 >= sinr_scale * total + sinr_scale / (power * norm**2),
             ]
         )
-    problem = cp.Problem(cp.Minimize(cp.trace(epigraph)), constraints)
+    objective_expression = cp.trace(epigraph)
+    if crb_reference is not None:
+        objective_expression /= count
+    problem = cp.Problem(cp.Minimize(objective_expression), constraints)
     attempts: list[dict[str, Any]] = []
     accepted: list[OptimizationResult] = []
     for candidate in _solver_candidates(cp, solver):
@@ -278,6 +307,12 @@ def solve_sdr(
             )
             crb = crb_from_blocks(blocks)
             actual_objective = float(np.trace(crb))
+            physical_crb = crb * physical_factor
+            if crb_reference is not None:
+                ratios = np.diag(physical_crb) / crb_reference
+                actual_objective = float(np.mean(ratios))
+                if not np.isfinite(ratios).all() or np.max(ratios) > 1 + 1e-7:
+                    raise ValueError(f"Physical CRB reference exceeded: {ratios.tolist()}")
             rate_margin = float(np.min(rates) - rate)
             power_margin = float(power - np.trace(physical).real)
             residual_eigenvalue = float(np.linalg.eigvalsh(residual).min())
@@ -294,13 +329,6 @@ def solve_sdr(
                 raise ValueError(f"Indefinite waveform covariance: {residual_eigenvalue:g}")
             if epigraph_error > 2e-5 or lmi_eigenvalue < -1e-7:
                 raise ValueError(f"Information residual: {epigraph_error:g}, {lmi_eigenvalue:g}")
-            noise_factor = config.n_antennas if receive_combiner is not None else 1
-            factor = (
-                config.optimization_scale
-                * config.noise_power
-                * noise_factor
-                / (config.coherent_block_length)
-            )
             metadata = {
                 "baseband_covariance": baseband,
                 "transmit_basis": basis,
@@ -314,13 +342,21 @@ def solve_sdr(
                 "minimum_covariance_eigenvalue": covariance_eigenvalue,
                 "epigraph_relative_error": float(epigraph_error),
                 "minimum_information_lmi_eigenvalue": lmi_eigenvalue,
-                "physical_crb_trace": actual_objective * factor,
-                "physical_crb": crb * factor,
+                "physical_crb_trace": float(np.trace(physical_crb)),
+                "physical_crb": physical_crb,
                 "solver_tolerance": tolerance,
                 "validation_passed": True,
                 "solve_time_seconds": problem.solver_stats.solve_time,
                 "iterations": problem.solver_stats.num_iters,
             }
+            if crb_reference is not None:
+                metadata.update(
+                    crb_reference=crb_reference.copy(),
+                    normalized_crb=ratios,
+                    normalized_crb_objective=actual_objective,
+                    objective_kind="mean normalized CRB with component caps",
+                    crb_cap_relative_tolerance=1e-7,
+                )
             accepted.append(
                 OptimizationResult(
                     Waveform(physical, physical_beams, residual, method_name),

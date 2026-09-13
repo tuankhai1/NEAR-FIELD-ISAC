@@ -166,6 +166,23 @@ def build_parser() -> argparse.ArgumentParser:
     meta.add_argument("--range-fraction", type=_positive_float, default=0.5)
     meta.add_argument("--angle-radius-deg", type=_positive_float, default=3.0)
     meta.add_argument("--workers", type=_positive_int, default=1)
+
+    pareto = subparsers.add_parser(
+        "pareto",
+        help="compare component-capped, balanced PSO/DE hybrid designs to Figure 4",
+    )
+    _add_common_arguments(pareto, default_preset="paper")
+    pareto.add_argument("--distances", type=_positive_float, nargs="+", default=None)
+    pareto.add_argument("--population", type=_positive_int, default=12)
+    pareto.add_argument("--generations", type=_positive_int, default=20)
+    pareto.add_argument("--phase-modes", type=_nonnegative_int, default=3)
+    pareto.add_argument("--phase-radius", type=_positive_float, default=0.35)
+    pareto.add_argument("--polish-evaluations", type=_nonnegative_int, default=64)
+    pareto.add_argument("--restart-patience", type=_positive_int, default=4)
+    pareto.add_argument("--search-seeds", type=_nonnegative_int, nargs="+", default=[101, 202, 303])
+    pareto.add_argument("--range-fraction", type=_positive_float, default=0.5)
+    pareto.add_argument("--angle-radius-deg", type=_positive_float, default=3.0)
+    pareto.add_argument("--workers", type=_positive_int, default=1)
     return parser
 
 
@@ -273,6 +290,27 @@ def main(argv: Sequence[str] | None = None) -> None:
                 range_fraction=args.range_fraction, angle_radius_deg=args.angle_radius_deg,
             ),
             search_seeds=args.search_seeds, workers=args.workers, **common,
+        )
+    elif args.experiment == "pareto":
+        from .pareto import ParetoSettings
+        from .pareto_experiment import reproduce_pareto
+
+        summary = reproduce_pareto(
+            config,
+            args.distances or _default_distances(args.preset),
+            settings=ParetoSettings(
+                population=args.population,
+                generations=args.generations,
+                phase_modes=args.phase_modes,
+                phase_radius=args.phase_radius,
+                polish_evaluations=args.polish_evaluations,
+                restart_patience=args.restart_patience,
+                range_fraction=args.range_fraction,
+                angle_radius_deg=args.angle_radius_deg,
+            ),
+            search_seeds=args.search_seeds,
+            workers=args.workers,
+            **common,
         )
     else:
         distances = args.distances or _default_distances(args.preset)

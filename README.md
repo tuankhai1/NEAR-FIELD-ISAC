@@ -206,6 +206,19 @@ waveforms passed independent validation (maximum finite-difference CRB error:
 0.000257928%), and all 36 tests passed. See the
 [validation record](docs/results/2026-09-08/metaheuristics/validation.json).
 
+For the separate balanced follow-up, which requires both physical range and
+angle CRB variances to stay at or below original HB while minimizing their mean
+normalized value, run:
+
+```powershell
+python main.py pareto --preset paper --solver MOSEK --solver-threads 1 --workers 4
+```
+
+It writes to `results/pareto/` and leaves the original mixed-unit comparison
+unchanged. The RF search adds low-order nonconstant phase modes and a counted
+local polish; each PSO/DE candidate is capped against the original HB range
+and angle variances. See [the balanced-search method](docs/pareto.md).
+
 ### Cross-validation and remaining disagreement
 
 ![Absolute comparison of produced curves and digitized paper curves](docs/results/2026-09-07/comparison_to_paper.png)
@@ -231,6 +244,7 @@ separate validation questions.
 | `main.py`, `src/near_field_isac/cli.py` | Entry point, presets and command-line options |
 | `config.py`, `channels.py`, `communication.py` | Physical model, scenarios and communication waveforms |
 | `fim.py`, `optimization.py` | CRBs, SDR and physical acceptance checks |
+| `pareto.py`, `pareto_experiment.py` | Component-capped, balanced PSO/DE follow-up |
 | `music.py` | Echo simulation and localization |
 | `experiments.py` | Sweeps, saved artifacts and provenance |
 | `plotting.py` | Shared figure styling and rendering |
