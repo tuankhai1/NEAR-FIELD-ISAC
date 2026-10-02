@@ -1,12 +1,12 @@
 {
-  "physical_points_checked": 48,
+  "physical_points_checked": 59,
   "all_physical_checks_passed": true,
-  "largest_independent_crb_relative_error": 2.579283783443742e-06,
-  "smallest_rate_margin": -8.763825071866904e-06,
+  "largest_independent_crb_relative_error": 3.2282637683067605e-06,
+  "smallest_rate_margin": -3.6209701903544556e-10,
   "figure3_range_m": 19.952031020253685,
   "figure3_angle_deg": 45.0,
   "figure3_range_difference_from_reported_paper_m": 3.102025368306727e-05,
-  "far_music_relative_spread_along_target_ray": 5.4886983849820114e-11,
+  "far_music_relative_spread_along_target_ray": 0.0,
   "reference_source": {
     "source": "Near-Field ISAC.pdf, arXiv:2302.01153v5, 23 September 2025",
     "source_sha256": "c4dea3caec6495d08a1c0fba56d13ca9f9c9372173ccac053fbff46b8f2fa4b1",
@@ -17,5 +17,5 @@
     "figure4_fd_far_angle_deg": 3.450503030891267e-05,
     "figure4_hb_far_angle_deg": 0.0001991388023272857
   },
-  "interpretation": "Paper values are digitized plot coordinates, not author simulation data. No amplitude fitting or curve smoothing was applied."
+  "interpretation": "Paper values are digitized plot coordinates, not author simulation data. With realization='paper', the unreported random draws (users, reflection magnitude, receive combiners) were recovered from the figures; see docs/reproduction.md. Curves are not rescaled or smoothed."
 }

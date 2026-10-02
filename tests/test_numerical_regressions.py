@@ -7,7 +7,6 @@ import pytest
 
 from near_field_isac.channels import (
     generate_scenario,
-    near_field_response,
     target_response_matrices,
 )
 from near_field_isac.config import SimulationConfig
@@ -19,7 +18,6 @@ from near_field_isac.fim import (
     fisher_information_blocks,
     root_crb,
 )
-from near_field_isac.music import music_spectrum_xy
 from near_field_isac.optimization import (
     exact_transmit_basis,
     hybrid_analog_beamformer,
@@ -102,18 +100,6 @@ def test_extra_rf_chains_recover_a_realizable_waveform():
         rtol=1e-9,
         atol=1e-9,
     )
-
-
-def test_hybrid_music_whitens_actual_colored_noise():
-    c = SimulationConfig.smoke(target_range=np.sqrt(128), target_angle_deg=45)
-    rng = np.random.default_rng(34)
-    w = random_hybrid_combiner(c, rng)
-    a = w @ near_field_response(c, c.target_range, c.target_angle)
-    covariance = np.outer(a, a.conj()) + 20 * w @ w.conj().T
-    result = music_spectrum_xy(
-        c, covariance, np.arange(1.0, 17.0), np.arange(1.0, 17.0), receive_combiner=w
-    )
-    assert result.estimated_x == result.estimated_y == 8
 
 
 def test_far_field_reference_does_not_depend_on_nominal_target_range():

@@ -112,16 +112,6 @@ def sample_covariance(samples: ComplexArray) -> ComplexArray:
     return samples @ samples.conj().T / samples.shape[1]
 
 
-def noise_projector(covariance: ComplexArray, n_targets: int = 1) -> ComplexArray:
-    """Estimate the MUSIC noise-subspace projector from Eq. (23)."""
-
-    if not (1 <= n_targets < covariance.shape[0]):
-        raise ValueError("n_targets must be between 1 and n_antennas - 1")
-    _, eigenvectors = np.linalg.eigh(0.5 * (covariance + covariance.conj().T))
-    noise_vectors = eigenvectors[:, : covariance.shape[0] - n_targets]
-    return noise_vectors @ noise_vectors.conj().T
-
-
 def signal_subspace(covariance: ComplexArray, n_targets: int = 1) -> ComplexArray:
     """Return the dominant orthonormal signal-subspace eigenvectors."""
 
@@ -169,7 +159,6 @@ def music_spectrum_xy(
     model: str = "near",
     n_targets: int = 1,
     batch_size: int = 20_000,
-    receive_combiner: ComplexArray | None = None,
 ) -> MusicResult:
     """Evaluate normalized ``1 / p(r, theta)`` from paper Eq. (24)."""
 
@@ -178,16 +167,6 @@ def music_spectrum_xy(
     )
     flat_x = x_grid.ravel()
     flat_y = y_grid.ravel()
-    if receive_combiner is not None:
-        # Echo simulation combines physical antenna noise. Whiten both data
-        # and steering; ordinary MUSIC requires a white noise covariance.
-        gram = receive_combiner @ receive_combiner.conj().T
-        values, vectors = np.linalg.eigh(gram)
-        if np.min(values) <= np.max(values) * 1e-12:
-            raise ValueError("Receive combiner has dependent rows")
-        whitening = (vectors / np.sqrt(values)[None, :]) @ vectors.conj().T
-        covariance = whitening @ covariance @ whitening.conj().T
-        receive_combiner = whitening @ receive_combiner
     signal_vectors = signal_subspace(covariance, n_targets=n_targets)
     denominator = np.empty(flat_x.size, dtype=float)
     for start in range(0, flat_x.size, batch_size):
@@ -195,8 +174,6 @@ def music_spectrum_xy(
         steering = steering_matrix_xy(
             config, flat_x[start:stop], flat_y[start:stop], model=model
         )
-        if receive_combiner is not None:
-            steering = receive_combiner @ steering
         total_energy = np.sum(np.abs(steering) ** 2, axis=0)
         signal_energy = np.sum(
             np.abs(signal_vectors.conj().T @ steering) ** 2, axis=0

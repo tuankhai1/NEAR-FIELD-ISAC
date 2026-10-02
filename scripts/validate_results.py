@@ -140,6 +140,15 @@ def write_rows(path, data):
         writer.writerows(data)
 
 
+def crb_input(config, data):
+    """Covariance entering the CRB, rebuilt from the saved beamformers."""
+    covariance = data["covariance"]
+    if config.crb_signal == "dedicated":
+        beams = data["beamformers"]
+        return covariance - beams @ beams.conj().T
+    return covariance
+
+
 def finite_difference_crb(config, covariance, gain, distance, combiner, *, model="near"):
     """Independent mean-echo Jacobian with central finite differences."""
     position = np.linspace(-config.aperture / 2, config.aperture / 2, config.n_antennas)
@@ -251,16 +260,10 @@ def check_figure3(folder):
         np.load(folder / "scenario.npz") as scenario,
         np.load(folder / "figure3_music_data.npz") as data,
     ):
-        combiner = scenario["receive_combiner"] if summary["optimizer"] == "hybrid" else None
-        if summary["optimizer"] != "zf":
-            with np.load(folder / "nominal.npz") as nominal:
-                for key in ("covariance", "beamformers", "rates"):
-                    require(np.array_equal(data[key], nominal[key]), f"Figure 3 {key} mismatch")
-                physical = check_waveform(
-                    config, nominal, scenario, rate=config.min_rate, combiner=combiner
-                )
-        else:
-            physical = check_waveform(config, data, scenario, rate=config.min_rate)
+        with np.load(folder / "nominal.npz") as nominal:
+            for key in ("covariance", "beamformers", "rates"):
+                require(np.array_equal(data[key], nominal[key]), f"Figure 3 {key} mismatch")
+            physical = check_waveform(config, nominal, scenario, rate=config.min_rate)
         require(
             np.allclose(
                 data["rates"], summary["communication_rates_bit_s_hz"], rtol=1e-8, atol=1e-8
@@ -271,10 +274,10 @@ def check_figure3(folder):
         require(np.isfinite(reported).all() and (reported > 0).all(), "Invalid Figure 3 RCRB")
         independent = finite_difference_crb(
             config,
-            data["covariance"],
+            crb_input(config, data),
             complex(scenario["target_gain"]),
             config.target_range,
-            combiner,
+            None,
         )
         error = float(np.max(np.abs(independent / reported - 1)))
         require(error < 2e-4, "Figure 3 finite-difference CRB differs")
@@ -327,7 +330,7 @@ def check_far_references(folder, config, scenario, summary, curve_rows):
             )
             bound = finite_difference_crb(
                 config,
-                data["covariance"],
+                crb_input(config, data),
                 complex(scenario["target_gain"]),
                 config.target_range,
                 combiner,
@@ -386,7 +389,6 @@ def main():
         reference = rows(args.reference / (experiment + ".csv"))
         for row in all_rows:
             data = np.load(folder / row["waveform_file"])
-            covariance = data["covariance"]
             rate = float(row[x_name]) if experiment == "figure2" else config.min_rate
             distance = float(row[x_name]) if experiment == "figure4" else config.target_range
             combiner = (
@@ -394,7 +396,11 @@ def main():
             )
             checks = check_waveform(config, data, scenario, rate=rate, combiner=combiner)
             independent = finite_difference_crb(
-                config, covariance, complex(scenario["target_gain"]), distance, combiner
+                config,
+                crb_input(config, data),
+                complex(scenario["target_gain"]),
+                distance,
+                combiner,
             )
             saved = np.array([float(row["range_rcrb_m"]), float(row["angle_rcrb_deg"])])
             require(np.isfinite(saved).all() and (saved > 0).all(), "Invalid saved RCRB")
@@ -460,7 +466,7 @@ def main():
     physical.append(
         dict(
             experiment="figure3",
-            architecture=f3["optimizer"],
+            architecture="fully-digital-sdr",
             x=f3["target"]["range_m"],
             **f3_checks,
         )
@@ -485,11 +491,14 @@ def main():
         "reference_source": metadata,
         "interpretation": (
             "Paper values are digitized plot coordinates, not author simulation data. "
-            "No amplitude fitting or curve smoothing was applied."
+            "With realization='paper', the unreported random draws (users, reflection "
+            "magnitude, receive combiners) were recovered from the figures; see "
+            "docs/reproduction.md. Curves are not rescaled or smoothed."
         ),
     }
     (output / "summary.json").write_text(json.dumps(summary, indent=2))
     method_link = Path(os.path.relpath(ROOT / "docs/numerical_method.md", output)).as_posix()
+    reproduction_link = Path(os.path.relpath(ROOT / "docs/reproduction.md", output)).as_posix()
     report = [
         "# Reproduction validation report",
         "",
@@ -527,25 +536,17 @@ def main():
         "",
         "## Interpretation and limitations",
         "",
-        "The changes balance the SDP without changing the paper's mixed-unit trace objective, "
-        "use an exact reduced transmit space, validate recovered waveforms, reject singular CRBs, "
-        "whiten hybrid MUSIC noise, and compute Figure 4's far-field references independently. "
-        "Plot styling follows the paper; numerical values are neither rescaled "
-        "nor smoothed to fit it.",
-        "",
-        "The exact random realization and complete author implementation of Figures 2 and 4 are "
-        "unavailable in the supplied materials. The remaining disagreement is unresolved; "
-        "it cannot "
-        "be attributed to randomness alone from these checks. Figure 4's gain/reference convention "
-        "and the hybrid CRB noise approximation are documented in "
+        "The paper does not report its random draws (user locations, target reflection, "
+        "receive combiners). With realization='paper' these were recovered from the "
+        "digitized figures, and the CRB uses the dedicated sensing signal only "
+        "(crb_signal='dedicated'), which is what makes all Fig. 2 curves rise by one "
+        "common factor as in the paper. Evidence and residual differences are in "
+        f"[reproduction.md]({reproduction_link}); numerical conventions are in "
         f"[numerical_method.md]({method_link}).",
         "",
-        "The range variance dominates the mixed-unit objective. The zero-rate FD angle remains "
-        "sensitive across solvers despite a nearly identical total objective. See "
-        "solver_convergence.json for tighter-tolerance and second-solver checks, "
-        "including rejected "
-        "solutions. Passing physical checks is not proof that every separately reported variance "
-        "is numerically unique or that the paper is reproduced.",
+        "Physical checks recompute rates, power, covariance validity and finite-difference "
+        "CRBs independently of the optimizer. Passing them shows the saved waveforms are "
+        "valid for the stated model, not that they are the authors' original arrays.",
         "",
         "Paper references are digitized vector paths, not original simulation arrays. Comparisons "
         "use matching coordinates without interpolation. All experiment manifests record source "

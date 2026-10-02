@@ -21,9 +21,8 @@ The three main technical contributions are:
 Primary references: [arXiv paper](https://arxiv.org/abs/2302.01153),
 [DOI](https://doi.org/10.1109/LCOMM.2023.3280132), and
 [author MATLAB code](https://github.com/zhaolin820/near-field-integrated-sensing-and-communications).
-For the current implementation and measured validation results, see the
-[numerical method](numerical_method.md) and
-[12 September 2026 audit](pipeline_audit_2026-09-12.md).
+For the current implementation and how the figures are reproduced, see the
+[numerical method](numerical_method.md) and [reproduction notes](reproduction.md).
 
 ## 2. System model
 
@@ -174,8 +173,8 @@ preconditioner and the epigraph constraint
 ```
 
 to represent `V >= U^{-1}`. This preserves the original feasible set and
-objective while improving numerical conditioning. Solver-specific limitations
-remain, as recorded in the current pipeline audit.
+objective while improving numerical conditioning. Solver details are in
+[numerical_method.md](numerical_method.md).
 
 ## 7. Hybrid architecture
 
@@ -217,27 +216,28 @@ The paper excludes pathloss variation to examine geometric effects. As the
 target moves farther away, wavefront curvature decreases and range RCRB rises
 rapidly. The paper's angle-estimation curves improve toward the far-field
 limit as the directions seen by different antennas become more similar. The
-reproduced hybrid angle curve differs, as discussed in the
-[Figure 4 analysis](figure4_discrepancies.md).
+reproduction details are in [reproduction.md](reproduction.md).
 
 ## 9. Missing information for exact reproduction
 
 The following sources of uncertainty should be recorded in experimental reports:
 
-- The paper does not provide a seed, the four users' location realization, or
-  the number of Monte Carlo trials.
-- The upstream MATLAB code does not set an RNG seed and provides only the
-  fully digital MUSIC pipeline.
+- The paper does not provide a seed, the four users' locations, the target
+  reflection coefficient or the hybrid receive combiner. The upstream MATLAB
+  code sets no RNG seed and provides only the fully digital MUSIC pipeline.
+  This repository recovers these draws from the figures
+  ([reproduction.md](reproduction.md)).
+- The Fig. 2 curves are reproduced only when the CRB uses the dedicated sensing
+  signal `R_s` rather than `R_x` as in Eq. (13); see `crb_signal`.
 - Upstream user ranges are sampled uniformly from zero to the Rayleigh
   distance, although the model states a Fresnel lower bound of `1.2D`.
 - The upstream path-gain convention is `rho_0=lambda/(4*pi)`, followed by
   `sqrt(rho_0)/r`. This repository retains it for comparison with the code,
   rather than substituting a different Friis convention.
 - Figure 4 excludes pathloss without specifying the exact normalization.
-  The baseline retains the complex target gain generated at 20 m throughout
-  the distance sweep.
-- Figures 2 and 4 may not match the paper point by point even when trends
-  agree. Reproduction claims should include the seed, solver, tolerance,
+  The target gain generated at 20 m is held fixed and the user channels carry
+  no pathloss, which matches the paper's zero sensing cost at 5 bit/s/Hz.
+- Reproduction claims should include the realization, solver, tolerance,
   status, achieved rates and CSV data.
 
 ## 10. Scientific limitations of the model
@@ -263,32 +263,11 @@ at low SNR or in the presence of ambiguity and sidelobes.
 | Eq. (13), Appendix B | `fim.py`: `fisher_information_blocks`, `crb_matrix` |
 | Eqs. (20), (21) | `optimization.py`: `solve_fully_digital_sdr`, rank-one recovery |
 | Eq. (22) | `optimization.py`: `hybrid_analog_beamformer` |
-| Eqs. (23), (24) | `music.py`: `noise_projector`, `music_spectrum_xy` |
-| Figures 2–4 | `experiments.py` and `scripts/reproduce_figure*.py` |
+| Eqs. (23), (24) | `music.py`: `signal_subspace`, `music_spectrum_xy` |
+| Unreported random draws | `realization.py` |
+| Figures 2–4 | `experiments.py`, `plotting.py` |
 
-## 12. Possible optimization extensions
-
-The baseline includes ZF for a comparison with lower computational cost.
-Possible extensions, in suggested order, are:
-
-1. **WMMSE/SCA:** combine `trace(CRB)` and weighted sum rate into a scalar
-   objective, or retain rate constraints, while alternating receiver-weight
-   and waveform updates.
-2. **Riemannian hybrid optimization:** optimize RF phases directly on a product
-   of complex circles instead of fixing the steering columns.
-3. **Robust design:** optimize expected or worst-case performance over an
-   uncertain `(r,theta)` region instead of assuming an exact target location.
-4. **First-order solvers for large problems:** exploit low-rank and channel
-   structure to avoid many dense `N x N` PSD cones.
-5. **Multiple targets:** extend the position FIM to `2M x 2M`, accounting for
-   target association and correlated echoes.
-
-New algorithms should share the same saved scenario and seed. Before comparing
-CRBs, verify the power constraint, minimum achieved rate and positive
-semidefiniteness of the residual sensing covariance. The additional
-[PSO/DE experiment](metaheuristics.md) follows this comparison convention.
-
-## 13. Runtime considerations
+## 12. Runtime considerations
 
 CPU utilization below 100% does not imply a fault. SDP runtime includes
 canonicalization, sparse or dense factorization, and memory synchronization.
@@ -302,15 +281,12 @@ so memory and threading behavior differ from an unreduced `N x N` formulation.
 The verified MOSEK paper-preset pipeline uses:
 
 ```powershell
-python main.py all --preset paper --solver MOSEK --workers 1 --solver-threads 1
+python main.py all --preset paper --solver auto --solver-threads 2 --workers 3
 ```
 
-The additional PSO/DE comparison was verified with `--workers 4` and
-`--solver-threads 1`. Increasing either setting should be measured on the local
-machine; excessive concurrency can increase memory use and slow the run.
-As a practical starting point, keep `workers * solver_threads` within the
-available logical CPU count. The current CLARABEL installation cannot complete
-the full published rate grid; see the audit for its rejected high-rate cases.
+Keep `workers * solver_threads` within the available logical CPU count. CLARABEL
+cannot complete the published rate grid above about 5 bit/s/Hz for the
+65-antenna model, so the full pipeline needs MOSEK.
 With an inactive virtual environment, replace `python` in PowerShell with
 `.\.venv\Scripts\python.exe`.
 

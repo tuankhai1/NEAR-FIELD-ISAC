@@ -22,9 +22,9 @@ import matplotlib  # noqa: E402
 matplotlib.use("Agg")
 
 from .channels import Scenario, generate_scenario, near_field_response
-from .communication import Waveform, communication_rates, zf_sensing_baseline
+from .communication import communication_rates
 from .config import SimulationConfig
-from .fim import crb_matrix, far_field_angle_crb, root_crb
+from .fim import crb_covariance, crb_matrix, far_field_angle_crb, root_crb
 from .music import (
     complex_normal,
     generate_transmit_samples,
@@ -34,7 +34,6 @@ from .music import (
 )
 from .optimization import (
     OptimizationResult,
-    random_hybrid_combiner,
     solve_fully_digital_sdr,
     solve_hybrid_sdr,
 )
@@ -47,6 +46,7 @@ from .plotting import (
 from .plotting import (
     plot_music_pair as _plot_music_pair,
 )
+from .realization import Realization, realization_for
 
 
 def _prepare_output(path: str | Path) -> Path:
@@ -68,6 +68,18 @@ def _validated_sweep(
         domain = "non-negative" if allow_zero else "positive"
         raise ValueError(f"{name} must contain finite, {domain} values")
     return samples
+
+
+def _scenario_from(
+    config: SimulationConfig, realization: Realization, *, user_pathloss: bool = True
+) -> Scenario:
+    return generate_scenario(
+        config,
+        user_ranges=realization.user_ranges,
+        user_angles=realization.user_angles,
+        target_reflection=realization.target_reflection,
+        user_pathloss=user_pathloss,
+    )
 
 
 def _save_json(path: Path, payload: dict[str, Any]) -> None:
@@ -102,7 +114,11 @@ def _save_solution(output: Path, name: str, result: OptimizationResult) -> str:
 
 
 def _save_provenance(
-    output: Path, config: SimulationConfig, scenario: Scenario, receive_combiner: np.ndarray | None
+    output: Path,
+    config: SimulationConfig,
+    scenario: Scenario,
+    receive_combiner: np.ndarray | None,
+    realization: str = "",
 ) -> None:
     import hashlib
     import importlib.metadata
@@ -133,6 +149,7 @@ def _save_provenance(
         output / "provenance.json",
         {
             "config": asdict(config),
+            "realization": realization,
             "versions": versions,
             "python": platform.python_version(),
             "source_sha256": source_hashes,
@@ -163,29 +180,10 @@ def _solver_kwargs(
     }
 
 
-def _waveform_for_figure3(
-    config: SimulationConfig,
-    scenario: Scenario,
-    optimizer: str,
-    solver_kwargs: dict[str, Any],
-    rng: np.random.Generator,
-) -> tuple[Waveform, OptimizationResult | None]:
-    if optimizer == "zf":
-        return zf_sensing_baseline(config, scenario.communication_channels), None
-    if optimizer == "sdr":
-        result = solve_fully_digital_sdr(config, scenario, **solver_kwargs)
-        return result.waveform, result
-    if optimizer == "hybrid":
-        result = solve_hybrid_sdr(config, scenario, rng=rng, **solver_kwargs)
-        return result.waveform, result
-    raise ValueError("optimizer must be 'zf', 'sdr', or 'hybrid'")
-
-
 def reproduce_figure3(
     config: SimulationConfig,
     *,
     output_dir: str | Path,
-    optimizer: str = "sdr",
     grid_size: int = 121,
     solver: str = "auto",
     verbose: bool = False,
@@ -193,43 +191,37 @@ def reproduce_figure3(
     max_iterations: int = 20_000,
     solver_threads: int | None = None,
     precomputed_result: OptimizationResult | None = None,
+    realization: str = "paper",
 ) -> dict[str, Any]:
-    """Reproduce the near-/far-field MUSIC comparison in paper Fig. 3."""
+    """Reproduce the near-/far-field MUSIC comparison in paper Fig. 3.
+
+    Uses the Fig. 2 scenario and the fully digital SDR waveform at
+    ``config.min_rate``; ``config.seed`` drives the symbols and noise.
+    """
 
     if grid_size < 21:
         raise ValueError("grid_size must be at least 21")
     output = _prepare_output(output_dir)
+    draw = realization_for(config, 3, realization)
+    scenario = _scenario_from(config, draw)
     rng = np.random.default_rng(config.seed)
-    scenario = generate_scenario(config, rng)
     solver_options = _solver_kwargs(solver, verbose, tolerance, max_iterations, solver_threads)
-    if precomputed_result is not None:
-        if optimizer != "sdr":
-            raise ValueError("a precomputed Figure 3 result requires optimizer='sdr'")
+    if precomputed_result is None:
+        optimization_result = solve_fully_digital_sdr(config, scenario, **solver_options)
+    else:
         if precomputed_result.waveform.covariance.shape != (
             config.n_antennas,
             config.n_antennas,
         ):
             raise ValueError("precomputed Figure 3 result is incompatible with config")
-        waveform = precomputed_result.waveform
         optimization_result = precomputed_result
-    else:
-        waveform, optimization_result = _waveform_for_figure3(
-            config, scenario, optimizer, solver_options, rng
-        )
+    waveform = optimization_result.waveform
     rates = communication_rates(
         scenario.communication_channels,
         waveform.covariance,
         waveform.communication_beamformers,
     )
-    receive_combiner = None
-    if optimization_result is not None:
-        receive_combiner = optimization_result.metadata.get("receive_combiner")
-    sensing_crb = crb_matrix(
-        config,
-        waveform.covariance,
-        scenario.target_gain,
-        receive_combiner=receive_combiner,
-    )
+    sensing_crb = crb_matrix(config, crb_covariance(config, waveform), scenario.target_gain)
     range_rcrb, angle_rcrb = root_crb(sensing_crb)
 
     transmit = generate_transmit_samples(
@@ -257,30 +249,12 @@ def reproduce_figure3(
         model="far",
         noise_samples=common_noise,
     )
-    if receive_combiner is not None:
-        near_echo = receive_combiner @ near_echo
-        far_echo = receive_combiner @ far_echo
     axis = np.linspace(0.0, 40.0, grid_size)
-    near_music = music_spectrum_xy(
-        config,
-        sample_covariance(near_echo),
-        axis,
-        axis,
-        model="near",
-        receive_combiner=receive_combiner,
-    )
-    far_music = music_spectrum_xy(
-        config,
-        sample_covariance(far_echo),
-        axis,
-        axis,
-        model="far",
-        receive_combiner=receive_combiner,
-    )
+    near_music = music_spectrum_xy(config, sample_covariance(near_echo), axis, axis, model="near")
+    far_music = music_spectrum_xy(config, sample_covariance(far_echo), axis, axis, model="far")
 
-    _save_provenance(output, config, scenario, receive_combiner)
-    if optimization_result is not None:
-        _save_solution(output, "nominal", optimization_result)
+    _save_provenance(output, config, scenario, None, draw.source)
+    _save_solution(output, "nominal", optimization_result)
 
     _plot_music_pair(
         near_music,
@@ -303,7 +277,7 @@ def reproduce_figure3(
     )
     summary: dict[str, Any] = {
         "experiment": "figure3",
-        "optimizer": optimizer,
+        "realization": draw.source,
         "preset": {
             "n_antennas": config.n_antennas,
             "n_users": config.n_users,
@@ -327,13 +301,12 @@ def reproduce_figure3(
         "communication_rates_bit_s_hz": rates.tolist(),
         "range_rcrb_m": range_rcrb,
         "angle_rcrb_deg": angle_rcrb,
-    }
-    if optimization_result is not None:
-        summary["solver"] = {
+        "solver": {
             "name": optimization_result.solver,
             "status": optimization_result.status,
             "objective": optimization_result.objective,
-        }
+        },
+    }
     _save_json(output / "figure3_summary.json", summary)
     return summary
 
@@ -348,7 +321,7 @@ def _curve_row(
     receive_combiner = result.metadata.get("receive_combiner")
     crb = crb_matrix(
         config,
-        result.waveform.covariance,
+        crb_covariance(config, result.waveform),
         scenario.target_gain,
         distance=scenario.target_range,
         angle=scenario.target_angle,
@@ -427,6 +400,7 @@ def reproduce_figure2(
     workers: int = 1,
     result_cache: MutableMapping[float, tuple[OptimizationResult, OptimizationResult]]
     | None = None,
+    realization: str = "paper",
 ) -> dict[str, Any]:
     """Reproduce the sensing/communication tradeoff in paper Fig. 2."""
 
@@ -434,10 +408,10 @@ def reproduce_figure2(
         raise ValueError("workers must be at least 1")
     rates = _validated_sweep(rates, name="rates", allow_zero=True)
     output = _prepare_output(output_dir)
-    rng = np.random.default_rng(config.seed)
-    scenario = generate_scenario(config, rng)
-    receive_combiner = random_hybrid_combiner(config, rng)
-    _save_provenance(output, config, scenario, receive_combiner)
+    draw = realization_for(config, 2, realization)
+    scenario = _scenario_from(config, draw)
+    receive_combiner = draw.receive_combiner
+    _save_provenance(output, config, scenario, receive_combiner, draw.source)
     solver_options = _solver_kwargs(solver, verbose, tolerance, max_iterations, solver_threads)
     rows: list[dict[str, Any]] = []
     if workers == 1:
@@ -494,7 +468,7 @@ def reproduce_figure2(
     _plot_figure2(rows, output / "figure2_rcrb_vs_rate.png")
     summary = {
         "experiment": "figure2",
-        "seed": config.seed,
+        "realization": draw.source,
         "workers": workers,
         "solver_threads": solver_threads,
         "rates": [float(value) for value in rates],
@@ -571,22 +545,25 @@ def reproduce_figure4(
     solver_threads: int | None = None,
     workers: int = 1,
     precomputed_results: dict[float, tuple[OptimizationResult, OptimizationResult]] | None = None,
+    realization: str = "paper",
 ) -> dict[str, Any]:
     """Reproduce the range-dependence experiment in paper Fig. 4.
 
-    The target gain generated at the nominal 20 m location is held fixed over
-    the sweep, implementing the paper's instruction to exclude pathloss.
+    Pathloss is excluded as in the paper: the target gain generated at the
+    nominal 20 m location is held fixed over the sweep, and the user channels
+    carry no pathloss.  The paper's 20 m FD values equal its zero-rate Fig. 2
+    values, i.e. the rate constraint costs no sensing power in Fig. 4.
     """
 
     if workers < 1:
         raise ValueError("workers must be at least 1")
     distances = _validated_sweep(distances, name="distances", allow_zero=False)
     output = _prepare_output(output_dir)
-    rng = np.random.default_rng(config.seed)
-    base_scenario = generate_scenario(config, rng)
+    draw = realization_for(config, 4, realization)
+    base_scenario = _scenario_from(config, draw, user_pathloss=False)
     fixed_target_gain = base_scenario.target_gain
-    receive_combiner = random_hybrid_combiner(config, rng)
-    _save_provenance(output, config, base_scenario, receive_combiner)
+    receive_combiner = draw.receive_combiner
+    _save_provenance(output, config, base_scenario, receive_combiner, draw.source)
     solver_options = _solver_kwargs(solver, verbose, tolerance, max_iterations, solver_threads)
     rows: list[dict[str, Any]] = []
     if workers == 1:
@@ -689,7 +666,7 @@ def reproduce_figure4(
     for result in (far_full, far_hybrid):
         value = far_field_angle_crb(
             config,
-            result.waveform.covariance,
+            crb_covariance(config, result.waveform),
             fixed_target_gain,
             receive_combiner=result.metadata.get("receive_combiner"),
         )
@@ -705,16 +682,15 @@ def reproduce_figure4(
     _plot_figure4(rows, output / "figure4_rcrb_vs_distance.png")
     summary = {
         "experiment": "figure4",
-        "seed": config.seed,
+        "realization": draw.source,
         "workers": workers,
         "solver_threads": solver_threads,
         "pathloss_in_sweep": False,
+        "user_pathloss": False,
         "far_field_reference": far_field_reference,
         "far_field_reference_convention": (
-            "Independent angle-only SDR with far-field target steering; fixed near-field "
-            "communication channels, gain, and receive combiner. Hybrid target RF column "
-            "uses far-field steering; user RF columns remain near-field. This is an "
-            "explicit reconstruction convention, independent of sweep endpoints."
+            "Angle-only SDR with far-field target steering; same users, gain and "
+            "receive combiner. Hybrid target RF column uses far-field steering."
         ),
         "distances_m": [float(value) for value in distances],
         "rows": rows,

@@ -128,6 +128,7 @@ def generate_scenario(
     user_ranges: FloatArray | None = None,
     user_angles: FloatArray | None = None,
     target_reflection: complex | None = None,
+    user_pathloss: bool = True,
 ) -> Scenario:
     """Generate channels with the conventions of the public MATLAB code.
 
@@ -135,6 +136,9 @@ def generate_scenario(
     ``[0, pi]``.  This follows ``generate_channel.m`` exactly; note that a few
     realizations can therefore fall below the Fresnel lower bound stated in the
     paper.  A tiny range floor only prevents division by zero.
+
+    ``user_pathloss=False`` drops the ``sqrt(rho_0)/r`` factor from the user
+    channels, as in the paper's Fig. 4 study "without factoring in pathloss".
     """
 
     rng = np.random.default_rng(config.seed) if rng is None else rng
@@ -150,10 +154,12 @@ def generate_scenario(
     safe_ranges = np.maximum(user_ranges, np.finfo(float).eps)
     channels = np.empty((config.n_antennas, config.n_users), dtype=np.complex128)
     for user in range(config.n_users):
+        path_gain = (
+            np.sqrt(config.reference_path_gain) / safe_ranges[user] if user_pathloss else 1.0
+        )
         gain = (
             np.sqrt(1.0 / config.noise_power)
-            * np.sqrt(config.reference_path_gain)
-            / safe_ranges[user]
+            * path_gain
             * np.exp(-1j * 2.0 * np.pi / config.wavelength * safe_ranges[user])
         )
         channels[:, user] = gain * near_field_response(

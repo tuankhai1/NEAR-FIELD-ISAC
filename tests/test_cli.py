@@ -42,7 +42,8 @@ def test_all_command_orchestrates_all_three_figures(monkeypatch, tmp_path) -> No
                 config.n_antennas,
                 list(distances),
                 kwargs["output_dir"],
-                kwargs["precomputed_results"],
+                kwargs.get("precomputed_results"),
+                kwargs["realization"],
             )
         )
         return {"experiment": "figure4"}
@@ -57,31 +58,20 @@ def test_all_command_orchestrates_all_three_figures(monkeypatch, tmp_path) -> No
     assert calls[0][2] == [0.0, 5.0, 8.0, 9.0, 10.0]
     assert calls[1][2] == 281
     assert calls[1][4] is nominal_results[0]
-    assert calls[2][4] == {20.0: nominal_results}
+    # Fig. 4 uses pathloss-free users and its own combiner, so it is solved anew.
+    assert calls[2][4] is None
+    assert calls[2][5] == "paper"
     assert (tmp_path / "all_summary.json").is_file()
 
 
 def test_smoke_preset_keeps_the_tiny_validation_model() -> None:
     arguments = build_parser().parse_args(["figure3", "--preset", "smoke"])
     assert arguments.preset == "smoke"
+    assert arguments.realization is None
 
 
-def test_metaheuristic_command_defaults_to_matched_paper_comparison() -> None:
-    arguments = build_parser().parse_args(["metaheuristics"])
-    assert arguments.preset == "paper"
-    assert arguments.population == 12
-    assert arguments.generations == 20
-    assert arguments.search_seeds == [101, 202, 303]
-    assert arguments.seed == 2023
-
-
-def test_pareto_command_exposes_component_capped_search_controls() -> None:
-    arguments = build_parser().parse_args(["pareto"])
-    assert arguments.preset == "paper"
-    assert arguments.phase_modes == 3
-    assert arguments.phase_radius == 0.35
-    assert arguments.polish_evaluations == 64
-    assert arguments.restart_patience == 4
+def test_paper_distances_follow_the_published_markers() -> None:
+    assert cli.PAPER_DISTANCES == [5, 6, 7, 8, 10, 12, 15, 20, 25, 30, 35, 40]
 
 
 @pytest.mark.parametrize("arguments", [
@@ -92,10 +82,6 @@ def test_pareto_command_exposes_component_capped_search_controls() -> None:
     ["all", "--rates", "nan"],
     ["figure2", "--rates", "-1"],
     ["figure4", "--distances", "inf"],
-    ["metaheuristics", "--distances", "0"],
-    ["metaheuristics", "--search-seeds", "-1"],
-    ["pareto", "--phase-modes", "-1"],
-    ["pareto", "--polish-evaluations", "-1"],
     ["all", "--tolerance", "nan"],
     ["all", "--max-iterations", "0"],
 ])

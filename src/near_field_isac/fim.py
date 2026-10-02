@@ -8,6 +8,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .channels import sensing_response_matrices
+from .communication import Waveform
 from .config import SimulationConfig
 
 ComplexArray = NDArray[np.complex128]
@@ -21,6 +22,14 @@ class FisherBlocks:
     j11: FloatArray
     j12: FloatArray
     j22: FloatArray
+
+
+def crb_covariance(config: SimulationConfig, waveform: Waveform) -> ComplexArray:
+    """Transmit covariance whose echo is used for sensing (``config.crb_signal``)."""
+
+    if config.crb_signal == "dedicated":
+        return waveform.sensing_covariance
+    return waveform.covariance
 
 
 def _real_trace(left: ComplexArray, covariance: ComplexArray, right: ComplexArray) -> float:

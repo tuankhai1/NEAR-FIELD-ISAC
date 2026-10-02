@@ -16,6 +16,11 @@ from .fim import crb_from_blocks, fisher_information_blocks
 ComplexArray = NDArray[np.complex128]
 FloatArray = NDArray[np.float64]
 
+# Relative range-CRB tolerance of the lexicographic angle refinement.
+ANGLE_REFINEMENT_RANGE_SLACK = 1e-6
+# Solver tolerance retried when the requested one fails.
+FALLBACK_TOLERANCE = 1e-9
+
 
 @dataclass(frozen=True)
 class OptimizationResult:
@@ -141,6 +146,7 @@ def solve_sdr(
     sensing_model: str = "near",
     reduce_dimension: bool = True,
     crb_reference: FloatArray | None = None,
+    refine_angle: bool = True,
 ) -> OptimizationResult:
     """Unchanged radians-based trace-CRB objective, with a balanced inverse LMI.
 
@@ -148,6 +154,13 @@ def solve_sdr(
     channels. With a two-component physical ``crb_reference``, minimize the
     mean normalized variance and cap each variance at its reference value.
     The default remains the original mixed-unit trace objective.
+
+    In the trace objective the angle variance (rad^2) is about 1e-8 of the
+    range variance (m^2), below interior-point accuracy, so the solver may
+    return any point of the range-optimal face.  ``refine_angle`` resolves
+    this by a second, lexicographic stage: cap the range CRB within
+    ``ANGLE_REFINEMENT_RANGE_SLACK`` of its optimum and the angle CRB at its
+    first-stage value, then minimize their mean normalized value.
     """
     cp = _import_cvxpy()
     rate = config.min_rate if min_rate is None else float(min_rate)
@@ -222,10 +235,14 @@ def solve_sdr(
         np.sqrt(fim_scale * power) * scale * d @ basis
         for scale, d in zip(coordinate_scale, jacobians, strict=True)
     ]
+    # With crb_signal="dedicated" only R_s = R_x - sum_k P_k is known to the
+    # sensing receiver; communication symbols carry no sensing information.
+    dedicated = bool(lifted) and config.crb_signal == "dedicated"
+    sensing = covariance - sum(lifted) if dedicated else covariance
     information = cp.bmat(
         [
             [
-                cp.real(cp.trace((left.conj().T @ right) @ covariance))
+                cp.real(cp.trace((left.conj().T @ right) @ sensing))
                 for right in balanced_derivatives
             ]
             for left in balanced_derivatives
@@ -275,12 +292,17 @@ def solve_sdr(
     problem = cp.Problem(cp.Minimize(objective_expression), constraints)
     attempts: list[dict[str, Any]] = []
     accepted: list[OptimizationResult] = []
-    for candidate in _solver_candidates(cp, solver):
+    # A tolerance at the solver's accuracy limit can stall on rounding noise,
+    # and a loose one can miss the acceptance limits below; retry once at
+    # FALLBACK_TOLERANCE. Physical checks still apply to every attempt.
+    tolerances = list(dict.fromkeys((tolerance, FALLBACK_TOLERANCE)))
+    plan = [(name, tol) for name in _solver_candidates(cp, solver) for tol in tolerances]
+    for candidate, attempt_tolerance in plan:
         try:
             objective = problem.solve(
                 solver=candidate,
                 verbose=verbose,
-                **_solve_options(candidate, tolerance, max_iterations, solver_threads),
+                **_solve_options(candidate, attempt_tolerance, max_iterations, solver_threads),
             )
             if problem.status not in {cp.OPTIMAL, cp.OPTIMAL_INACCURATE}:
                 raise ValueError(f"status={problem.status}")
@@ -297,7 +319,7 @@ def solve_sdr(
             rates = communication_rates(scenario.communication_channels, physical, physical_beams)
             blocks = fisher_information_blocks(
                 config,
-                physical,
+                residual if config.crb_signal == "dedicated" else physical,
                 scenario.target_gain,
                 distance=scenario.target_range,
                 angle=scenario.target_angle,
@@ -344,7 +366,7 @@ def solve_sdr(
                 "minimum_information_lmi_eigenvalue": lmi_eigenvalue,
                 "physical_crb_trace": float(np.trace(physical_crb)),
                 "physical_crb": physical_crb,
-                "solver_tolerance": tolerance,
+                "solver_tolerance": attempt_tolerance,
                 "validation_passed": True,
                 "solve_time_seconds": problem.solver_stats.solve_time,
                 "iterations": problem.solver_stats.num_iters,
@@ -367,7 +389,14 @@ def solve_sdr(
                     metadata,
                 )
             )
-            attempts.append({"solver": candidate, "status": str(problem.status), "accepted": True})
+            attempts.append(
+                {
+                    "solver": candidate,
+                    "tolerance": attempt_tolerance,
+                    "status": str(problem.status),
+                    "accepted": True,
+                }
+            )
             if problem.status == cp.OPTIMAL:
                 break
         except Exception as error:
@@ -375,12 +404,55 @@ def solve_sdr(
                 error.__class__.__module__.partition(".")[0] == "mosek"
             ):
                 raise
-            attempts.append({"solver": candidate, "accepted": False, "reason": str(error)})
+            attempts.append(
+                {
+                    "solver": candidate,
+                    "tolerance": attempt_tolerance,
+                    "accepted": False,
+                    "reason": str(error),
+                }
+            )
     if not accepted:
         raise RuntimeError(f"No solver produced a validated waveform: {attempts}")
     best = min(accepted, key=lambda result: result.objective)
     best.metadata["solver_attempts"] = attempts
-    return best
+    if not refine_angle or crb_reference is not None or sensing_model != "near":
+        return best
+    stage_one = best.metadata["physical_crb"]
+    caps = np.array([stage_one[0, 0] * (1 + ANGLE_REFINEMENT_RANGE_SLACK), stage_one[1, 1]])
+    try:
+        refined = solve_sdr(
+            config,
+            scenario,
+            min_rate=rate,
+            solver=best.solver,
+            verbose=verbose,
+            tolerance=tolerance,
+            max_iterations=max_iterations,
+            solver_threads=solver_threads,
+            transmit_basis=basis,
+            receive_combiner=receive_combiner,
+            method_name=method_name,
+            sensing_model=sensing_model,
+            crb_reference=caps,
+            refine_angle=False,
+        )
+    except RuntimeError as error:
+        best.metadata["angle_refinement"] = f"failed, stage-one solution kept: {error}"
+        return best
+    refined_crb = refined.metadata["physical_crb"]
+    if refined_crb[1, 1] >= stage_one[1, 1]:
+        best.metadata["angle_refinement"] = "no improvement, stage-one solution kept"
+        return best
+    for key in ("crb_reference", "normalized_crb", "normalized_crb_objective", "objective_kind"):
+        refined.metadata.pop(key, None)
+    refined.metadata.update(
+        angle_refinement="lexicographic: range CRB capped, angle CRB minimized",
+        angle_refinement_range_slack=ANGLE_REFINEMENT_RANGE_SLACK,
+        stage_one_physical_crb=stage_one,
+        stage_one_attempts=attempts,
+    )
+    return replace(refined, objective=float(np.trace(refined_crb) / physical_factor))
 
 
 def solve_fully_digital_sdr(
@@ -418,26 +490,16 @@ def solve_hybrid_sdr(
     *,
     rng: np.random.Generator | None = None,
     receive_combiner: ComplexArray | None = None,
-    analog_beamformer: ComplexArray | None = None,
     method_name: str = "hybrid-two-stage-sdr",
     **kwargs: Any,
 ) -> OptimizationResult:
-    """Optimize baseband for paper focusing or a supplied unit-modulus RF matrix."""
+    """Two-stage hybrid design: Eq. (22) RF focusing, then the baseband SDR."""
     rng = np.random.default_rng(config.seed + 1) if rng is None else rng
-    if analog_beamformer is None:
-        analog = hybrid_analog_beamformer(
-            config,
-            scenario,
-            sensing_model=kwargs.get("sensing_model", "near"),
-        )
-    else:
-        analog = np.asarray(analog_beamformer, dtype=complex)
-        if analog.shape != (config.n_antennas, config.n_rf_chains):
-            raise ValueError("Analog beamformer has incompatible shape")
-        if not np.all(np.isfinite(analog)) or not np.allclose(
-            np.abs(analog), 1, rtol=0, atol=1e-10
-        ):
-            raise ValueError("Analog beamformer must be finite and unit modulus")
+    analog = hybrid_analog_beamformer(
+        config,
+        scenario,
+        sensing_model=kwargs.get("sensing_model", "near"),
+    )
     if receive_combiner is None:
         receive_combiner = random_hybrid_combiner(config, rng)
     else:

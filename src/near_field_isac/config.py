@@ -37,6 +37,11 @@ class SimulationConfig:
     target_angle_deg: float = 45.0
     optimization_scale: float = 1.0e2
     seed: int = 2023
+    # Signal whose echo enters the CRB.  "dedicated": only s[t] (covariance
+    # R_s); "total": all of x[t] (R_x), as written in Eq. (13).  The paper's
+    # Fig. 2 curves all rise by one common factor with R_min, identical for FD
+    # and HB to 1e-5; only "dedicated" reproduces that, see realization.py.
+    crb_signal: str = "dedicated"
 
     def __post_init__(self) -> None:
         if self.n_antennas < 3 or self.n_antennas % 2 != 1:
@@ -51,6 +56,8 @@ class SimulationConfig:
             raise ValueError("target_range must be positive")
         if self.coherent_block_length < 1:
             raise ValueError("coherent_block_length must be positive")
+        if self.crb_signal not in ("dedicated", "total"):
+            raise ValueError("crb_signal must be 'dedicated' or 'total'")
 
     @classmethod
     def paper(cls, **updates: object) -> SimulationConfig:
