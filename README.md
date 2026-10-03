@@ -4,7 +4,7 @@ Reproduction of Z. Wang, X. Mu, and Y. Liu, **Near-Field Integrated Sensing and 
 
 The code implements the paper's spherical-wave channels, joint range/angle CRB, fully digital SDR, two-stage hybrid beamforming and near-field MUSIC, and reproduces Figures 2–4.
 
-**Status (2 October 2026):** all three figures match the paper.
+**Status:** all three figures match the paper.
 
 | Figure | Agreement with the digitized paper curves |
 |---|---|
@@ -67,23 +67,23 @@ The paper leaves some details unreported. Two options control them:
 
 ## Produced figures
 
-Snapshot of the validated 2 October 2026 run (paper preset, MOSEK). Rerunning updates `results/`, not these images in `docs/results/`.
+Snapshot of a validated run (paper preset, MOSEK). Rerunning updates `results/`, not these images in `docs/results/`.
 
 ### Figure 2 — sensing versus communication rate
 
-![Figure 2: range and angle RCRB versus minimum communication rate](docs/results/2026-10-02/figure2_rcrb_vs_rate.png)
+![Figure 2: range and angle RCRB versus minimum communication rate](docs/results/figure2_rcrb_vs_rate.png)
 
 The sensing–communication tradeoff: all four curves stay flat up to about 8 bit/s/Hz, then rise by a common factor of 3 at 10.7 bit/s/Hz, as in the paper.
 
 ### Figure 3 — MUSIC spectrum at R_min = 5 bit/s/Hz
 
-![Figure 3: near-field and far-field MUSIC spectra](docs/results/2026-10-02/figure3_music_spectrum.png)
+![Figure 3: near-field and far-field MUSIC spectra](docs/results/figure3_music_spectrum.png)
 
 Near-field MUSIC peaks at the target (19.952 m, 45°). The far-field spectrum is constant along the 45° direction, so it cannot resolve range.
 
 ### Figure 4 — sensing versus target distance at R_min = 5 bit/s/Hz
 
-![Figure 4: range and angle RCRB versus target distance](docs/results/2026-10-02/figure4_rcrb_vs_distance.png)
+![Figure 4: range and angle RCRB versus target distance](docs/results/figure4_rcrb_vs_distance.png)
 
 Range RCRB grows as r² as the wavefront flattens; the near-field angle RCRB decreases toward the far-field reference. As in the paper, pathloss is excluded from this sweep.
 
@@ -104,7 +104,7 @@ Any failed check stops the script with an error.
 
 **2. Comparison with the paper.** The paper's curves were extracted from the vector graphics in its PDF and calibrated against the axis ticks ([`docs/paper_reference/`](docs/paper_reference/)). Each produced point is compared with the paper value at the same coordinate, without interpolation or rescaling.
 
-### Results of the 2 October 2026 run
+### Validation results
 
 | Check | Result |
 |---|---|
@@ -141,13 +141,13 @@ Selected points:
 
 Absolute values, produced (solid) against the paper (dashed):
 
-![Absolute comparison with the digitized paper curves](docs/results/2026-10-02/comparison_to_paper.png)
+![Absolute comparison with the digitized paper curves](docs/results/comparison_to_paper.png)
 
 Shapes, each curve divided by its first point:
 
-![Shape comparison with the digitized paper curves](docs/results/2026-10-02/normalized_comparison.png)
+![Shape comparison with the digitized paper curves](docs/results/normalized_comparison.png)
 
-Full data: [summary.json](docs/results/2026-10-02/summary.json) and [paper_comparison.csv](docs/results/2026-10-02/paper_comparison.csv).
+Full data: [summary.json](docs/results/summary.json) and [paper_comparison.csv](docs/results/paper_comparison.csv).
 
 ### Remaining differences
 
