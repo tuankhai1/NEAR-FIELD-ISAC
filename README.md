@@ -16,10 +16,9 @@ All 59 saved waveforms pass an independent physical validation; all tests and li
 
 ## Quick start
 
-On this computer (the project `.venv` contains all packages and a licensed MOSEK), in PowerShell:
+From the repository root, with a virtual environment that has the package and a licensed MOSEK installed (PowerShell shown):
 
 ```powershell
-Set-Location "D:\NTK\PROJECTS\NEAR-FIELD ISAC"
 & .\.venv\Scripts\Activate.ps1
 python main.py all --preset paper --solver auto --solver-threads 2 --workers 3
 python scripts/validate_results.py
