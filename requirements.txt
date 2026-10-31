@@ -1,0 +1,6 @@
+numpy>=2.0
+scipy>=1.11
+matplotlib>=3.8
+cvxpy>=1.5
+Mosek>=10        # licence required (free academic licence); the SDPs are badly conditioned for CLARABEL at R_min >= 5
+pytest>=8        # tests only
